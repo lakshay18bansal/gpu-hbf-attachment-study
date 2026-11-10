@@ -1,0 +1,6 @@
+C3 qwen3_layer13 prefetch=off rc=0
+  cycles 11,495,345  time 8152.73 us  kernels 64  insn 433,805,850
+  L2 accesses 1,687,772 misses 16,148
+  HBM/DRAM read 119,456 B write 0 B = 0.01 GB/s of 387.07
+  HBF requests 3,146,176 page reads 618,186 MSHR hits 2,527,990 bytes read 100,677,632 = 12.35 GB/s; read latency avg 8416 cycles
+  attach: admitted 3,146,176 returned 3,146,176; E2E latency avg 12353 p50 10944 p99 42336 cycles

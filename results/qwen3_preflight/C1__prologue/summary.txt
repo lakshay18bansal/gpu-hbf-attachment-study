@@ -1,0 +1,4 @@
+C1 qwen3_prologue prefetch=off rc=0
+  cycles 101,071  time 71.68 us  kernels 18  insn 282,695
+  L2 accesses 638 misses 359
+  HBM/DRAM read 4,480 B write 0 B = 0.06 GB/s of 387.07

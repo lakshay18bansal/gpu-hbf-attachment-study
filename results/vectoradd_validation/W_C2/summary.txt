@@ -1,0 +1,5 @@
+C2 /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw512k/kernelslist.g prefetch=off rc=0
+  cycles 6,317,901  time 4480.78 us  kernels 1  insn 14,680,064
+  L2 accesses 114,688 misses 114,688
+  HBM/DRAM read 0 B write 0 B = 0.00 GB/s of 387.07
+  HBF requests 278,528 page reads 3,230 MSHR hits 258,914 bytes read 8,388,608 = 1.87 GB/s; read latency avg 20792 cycles

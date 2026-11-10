@@ -1,0 +1,6 @@
+# tick  op  channel  intra-channel byte address
+0       R   0        0x0
+3000    R   0        0x100
+6000    R   0        0x400000
+9000    W   0        0x800000
+12000   R   3        0x0

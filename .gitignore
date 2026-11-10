@@ -1,0 +1,18 @@
+# build outputs
+simulator/build/
+simulator/build_*/
+simulator/ramulator2/build/
+simulator/ramulator2/libramulator.so
+simulator/ramulator2/python/ramulator/_ramulator*.so
+simulator/accel-sim-framework/gpu-simulator/bin/
+simulator/accel-sim-framework/gpu-simulator/build/
+# your own simulation runs (models/run.sh writes here; results/ holds the shipped ones)
+runs/
+# python
+__pycache__/
+*.pyc
+.venv/
+# editors / OS
+.vscode/
+.idea/
+.DS_Store

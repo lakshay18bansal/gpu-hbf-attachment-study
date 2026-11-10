@@ -1,0 +1,434 @@
+memory_system:
+  impl: GenericDRAM
+  total_num_read_requests: 107674652
+  total_num_write_requests: 425225
+  channel_mapper:
+    impl: PassThroughChannelMapper
+
+
+  controller:
+    -
+      impl: HBM12
+      id: Channel 0
+      cycles: 44368250
+      row_hits: 11582395
+      row_misses: 337877
+      row_conflicts: 1592985
+      read_row_hits: 11548642
+      read_row_misses: 336009
+      read_row_conflicts: 1575495
+      write_row_hits: 33753
+      write_row_misses: 1868
+      write_row_conflicts: 17490
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13460146
+      num_write_reqs: 53111
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13460146
+      num_write_reqs_served: 53111
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 653698957
+      read_queue_len: 632170832
+      write_queue_len: 20941861
+      priority_queue_len: 586264
+      queue_len_avg: 14.7335
+      read_queue_len_avg: 14.2483
+      write_queue_len_avg: 0.472001
+      priority_queue_len_avg: 0.0132136
+      read_latency: 999818551
+      avg_read_latency: 74.2799
+      read_throughput_MBps: 14686.8
+      write_throughput_MBps: 57.951
+      total_throughput_MBps: 14744.7
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 1
+      cycles: 44368250
+      row_hits: 11552105
+      row_misses: 336389
+      row_conflicts: 1623786
+      read_row_hits: 11518600
+      read_row_misses: 334534
+      read_row_conflicts: 1606214
+      write_row_hits: 33505
+      write_row_misses: 1855
+      write_row_conflicts: 17572
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459348
+      num_write_reqs: 52932
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459348
+      num_write_reqs_served: 52932
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 649528170
+      read_queue_len: 628850494
+      write_queue_len: 20096193
+      priority_queue_len: 581483
+      queue_len_avg: 14.6395
+      read_queue_len_avg: 14.1734
+      write_queue_len_avg: 0.452941
+      priority_queue_len_avg: 0.0131058
+      read_latency: 997154914
+      avg_read_latency: 74.0864
+      read_throughput_MBps: 14685.9
+      write_throughput_MBps: 57.7557
+      total_throughput_MBps: 14743.6
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 2
+      cycles: 44368250
+      row_hits: 11531000
+      row_misses: 336245
+      row_conflicts: 1645364
+      read_row_hits: 11497695
+      read_row_misses: 334431
+      read_row_conflicts: 1627379
+      write_row_hits: 33305
+      write_row_misses: 1814
+      write_row_conflicts: 17985
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459505
+      num_write_reqs: 53104
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459505
+      num_write_reqs_served: 53104
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 651409684
+      read_queue_len: 629808212
+      write_queue_len: 21018456
+      priority_queue_len: 583016
+      queue_len_avg: 14.6819
+      read_queue_len_avg: 14.195
+      write_queue_len_avg: 0.473727
+      priority_queue_len_avg: 0.0131404
+      read_latency: 998602674
+      avg_read_latency: 74.1931
+      read_throughput_MBps: 14686.1
+      write_throughput_MBps: 57.9433
+      total_throughput_MBps: 14744
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 3
+      cycles: 44368250
+      row_hits: 11512118
+      row_misses: 335219
+      row_conflicts: 1664855
+      read_row_hits: 11479043
+      read_row_misses: 333451
+      read_row_conflicts: 1646690
+      write_row_hits: 33075
+      write_row_misses: 1768
+      write_row_conflicts: 18165
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459184
+      num_write_reqs: 53008
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459184
+      num_write_reqs_served: 53008
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 652636610
+      read_queue_len: 630907304
+      write_queue_len: 21150410
+      priority_queue_len: 578896
+      queue_len_avg: 14.7095
+      read_queue_len_avg: 14.2198
+      write_queue_len_avg: 0.476701
+      priority_queue_len_avg: 0.0130475
+      read_latency: 1000121162
+      avg_read_latency: 74.3077
+      read_throughput_MBps: 14685.7
+      write_throughput_MBps: 57.8386
+      total_throughput_MBps: 14743.5
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 4
+      cycles: 44368250
+      row_hits: 11494115
+      row_misses: 334817
+      row_conflicts: 1683612
+      read_row_hits: 11461082
+      read_row_misses: 333016
+      read_row_conflicts: 1665142
+      write_row_hits: 33033
+      write_row_misses: 1801
+      write_row_conflicts: 18470
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459240
+      num_write_reqs: 53304
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459240
+      num_write_reqs_served: 53304
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 654238124
+      read_queue_len: 633180712
+      write_queue_len: 20473138
+      priority_queue_len: 584274
+      queue_len_avg: 14.7456
+      read_queue_len_avg: 14.271
+      write_queue_len_avg: 0.461437
+      priority_queue_len_avg: 0.0131687
+      read_latency: 1002816803
+      avg_read_latency: 74.5077
+      read_throughput_MBps: 14685.8
+      write_throughput_MBps: 58.1616
+      total_throughput_MBps: 14743.9
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 5
+      cycles: 44368250
+      row_hits: 11476557
+      row_misses: 333641
+      row_conflicts: 1702266
+      read_row_hits: 11443965
+      read_row_misses: 331672
+      read_row_conflicts: 1683547
+      write_row_hits: 32592
+      write_row_misses: 1969
+      write_row_conflicts: 18719
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459184
+      num_write_reqs: 53280
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459184
+      num_write_reqs_served: 53280
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 656755182
+      read_queue_len: 635590577
+      write_queue_len: 20586631
+      priority_queue_len: 577974
+      queue_len_avg: 14.8024
+      read_queue_len_avg: 14.3253
+      write_queue_len_avg: 0.463995
+      priority_queue_len_avg: 0.0130267
+      read_latency: 1005623319
+      avg_read_latency: 74.7165
+      read_throughput_MBps: 14685.7
+      write_throughput_MBps: 58.1354
+      total_throughput_MBps: 14743.8
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 6
+      cycles: 44368250
+      row_hits: 11468589
+      row_misses: 333091
+      row_conflicts: 1710639
+      read_row_hits: 11436274
+      read_row_misses: 331193
+      read_row_conflicts: 1691742
+      write_row_hits: 32315
+      write_row_misses: 1898
+      write_row_conflicts: 18897
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13459209
+      num_write_reqs: 53110
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13459209
+      num_write_reqs_served: 53110
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 656957277
+      read_queue_len: 635528527
+      write_queue_len: 20854210
+      priority_queue_len: 574540
+      queue_len_avg: 14.8069
+      read_queue_len_avg: 14.3239
+      write_queue_len_avg: 0.470026
+      priority_queue_len_avg: 0.0129494
+      read_latency: 1005744833
+      avg_read_latency: 74.7254
+      read_throughput_MBps: 14685.7
+      write_throughput_MBps: 57.9499
+      total_throughput_MBps: 14743.7
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+    -
+      impl: HBM12
+      id: Channel 7
+      cycles: 44368250
+      row_hits: 11469131
+      row_misses: 331730
+      row_conflicts: 1711351
+      read_row_hits: 11436278
+      read_row_misses: 329817
+      read_row_conflicts: 1692741
+      write_row_hits: 32853
+      write_row_misses: 1913
+      write_row_conflicts: 18610
+      read_row_hits_core_0: 0
+      read_row_misses_core_0: 0
+      read_row_conflicts_core_0: 0
+      num_read_reqs: 13458836
+      num_write_reqs: 53376
+      num_maintenance_reqs: 15042
+      num_read_reqs_served: 13458836
+      num_write_reqs_served: 53376
+      num_maintenance_reqs_served: 15042
+      num_read_reqs_forwarded: 0
+      num_write_reqs_coalesced: 0
+      queue_len: 660488887
+      read_queue_len: 638322919
+      write_queue_len: 21588542
+      priority_queue_len: 577426
+      queue_len_avg: 14.8865
+      read_queue_len_avg: 14.3869
+      write_queue_len_avg: 0.486576
+      priority_queue_len_avg: 0.0130144
+      read_latency: 1008526559
+      avg_read_latency: 74.9342
+      read_throughput_MBps: 14685.3
+      write_throughput_MBps: 58.2401
+      total_throughput_MBps: 14743.6
+      scheduler:
+        impl: GPGPUSimFRFCFS
+
+      refresh_manager:
+        impl: AllBank
+
+      row_policy:
+        impl: Open
+
+      addr_mapper:
+        impl: GPUBgCoBaRo
+
+      controller_plugin:
+        impl: GPGPUSimCounter
+
+
+

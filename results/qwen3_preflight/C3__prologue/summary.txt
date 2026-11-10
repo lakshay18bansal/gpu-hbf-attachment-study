@@ -1,0 +1,6 @@
+C3 qwen3_prologue prefetch=off rc=0
+  cycles 121,741  time 86.34 us  kernels 18  insn 282,695
+  L2 accesses 510 misses 231
+  HBM/DRAM read 384 B write 0 B = 0.00 GB/s of 387.07
+  HBF requests 128 page reads 1 MSHR hits 127 bytes read 4,096 = 0.05 GB/s; read latency avg 21166 cycles
+  attach: admitted 128 returned 128; E2E latency avg 21312 p50 21328 p99 21344 cycles

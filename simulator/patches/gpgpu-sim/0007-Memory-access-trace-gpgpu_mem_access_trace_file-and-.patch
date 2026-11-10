@@ -1,0 +1,148 @@
+From e3a6fb0d0070196f81393af181b8e37d4f541871 Mon Sep 17 00:00:00 2001
+From: Lakshay <b.lakshay@iitg.ac.in>
+Date: Mon, 2 Nov 2026 10:12:00 +0000
+Subject: [PATCH 7/8] Memory access trace: -gpgpu_mem_access_trace_file and
+ _detail
+
+One line per request leaving the L2 for DRAM/HBM or HBF: cycle, address,
+R/W; with _detail 1 also the tier it was sent to, partition, L2
+sub-partition and bytes. HBF requests are logged when they leave the L2
+(before the front-end latency), DRAM requests when they enter the DRAM path.
+Used by tools/validate_routing.py.
+---
+ src/gpgpu-sim/gpu-sim.cc |  9 +++++++++
+ src/gpgpu-sim/gpu-sim.h  |  2 ++
+ src/gpgpu-sim/l2cache.cc | 42 ++++++++++++++++++++++++++++++++++++++++
+ src/gpgpu-sim/l2cache.h  |  2 ++
+ 4 files changed, 55 insertions(+)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index 2aee5c92..298cc051 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -586,6 +586,15 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          "Idle write-drain quiet period in ns; overrides -gpgpu_hbf_idle_drain_quiet when > 0 (default 0)",
+                          "0");
+ 
++  option_parser_register(opp, "-gpgpu_mem_access_trace_file", OPT_CSTR,
++                         &mem_access_trace_file,
++                         "Write one line per memory request leaving the L2 for DRAM/HBM or HBF: "
++                         "<core cycle> <address> <R|W>; empty disables (default \"\")",
++                         "");
++  option_parser_register(opp, "-gpgpu_mem_access_trace_detail", OPT_INT32,
++                         &mem_access_trace_detail,
++                         "1 = add <DRAM|HBF> <partition> <L2 sub-partition> <bytes> to every trace line (default 0)",
++                         "0");
+   option_parser_register(opp, "-gpgpu_hbf_attach", OPT_INT32, &hbf_attach,
+                          "HBF attachment: 0=legacy (shares DRAM queue and credits), "
+                          "1=direct (own queue and credits), 2=behind HBM (1 + shared PHY) (default 0)",
+diff --git a/src/gpgpu-sim/gpu-sim.h b/src/gpgpu-sim/gpu-sim.h
+index 901c63cb..64cf5034 100644
+--- a/src/gpgpu-sim/gpu-sim.h
++++ b/src/gpgpu-sim/gpu-sim.h
+@@ -556,6 +556,8 @@ class memory_config {
+   int hbf_write_timeout_policy;      // 0=partial compatibility, 1=strict
+   int hbf_l2_policy;                 // 0=bypass (default), 1=validated cache
+   char *hbf_trace_file;               // empty disables CSV trace
++  char *mem_access_trace_file;        // per-request memory access trace (cycle address R/W); empty = off
++  int mem_access_trace_detail;        // 1: also tier (DRAM|HBF), partition, L2 sub-partition, bytes
+   int hbf_trace_level;               // 0=off, 1=lifecycle, 2=flush each event
+   unsigned hbf_idle_drain_quiet;     // idle-drain quiet period in DRAM ticks (default 100)
+ 
+diff --git a/src/gpgpu-sim/l2cache.cc b/src/gpgpu-sim/l2cache.cc
+index cfd364d4..25a613bb 100644
+--- a/src/gpgpu-sim/l2cache.cc
++++ b/src/gpgpu-sim/l2cache.cc
+@@ -78,6 +78,42 @@ mem_fetch *partition_mf_allocator::alloc(
+                                 sid, tpc, m_memory_config, cycle, original_mf);
+   return mf;
+ }
++// Memory access trace (-gpgpu_mem_access_trace_file): one file for the whole GPU,
++// opened on first use and closed at exit. Lines are written in simulation order.
++static FILE *g_mem_access_trace = NULL;
++static void close_mem_access_trace() {
++  if (g_mem_access_trace) fclose(g_mem_access_trace);
++  g_mem_access_trace = NULL;
++}
++
++void memory_partition_unit::trace_mem_access(mem_fetch *mf, bool to_hbf) {
++  const char *path = m_config->mem_access_trace_file;
++  if (path == NULL || path[0] == '\0') return;
++  if (g_mem_access_trace == NULL) {
++    g_mem_access_trace = fopen(path, "w");
++    if (g_mem_access_trace == NULL) {
++      fprintf(stderr, "cannot open -gpgpu_mem_access_trace_file %s\n", path);
++      exit(1);
++    }
++    setvbuf(g_mem_access_trace, NULL, _IOFBF, 1 << 20);
++    atexit(close_mem_access_trace);
++    fprintf(g_mem_access_trace,
++            "# cycle address R/W%s  (cycle = GPU core cycle; one line per request leaving "
++            "the L2 for DRAM/HBM or HBF)\n",
++            m_config->mem_access_trace_detail ? " tier partition l2_subpartition bytes" : "");
++  }
++  if (m_config->mem_access_trace_detail)
++    fprintf(g_mem_access_trace, "%llu 0x%llx %c %s %u %u %u\n",
++            m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle,
++            (unsigned long long)mf->get_addr(), mf->is_write() ? 'W' : 'R',
++            to_hbf ? "HBF" : "DRAM", m_id, mf->get_sub_partition_id(),
++            mf->get_data_size());
++  else
++    fprintf(g_mem_access_trace, "%llu 0x%llx %c\n",
++            m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle,
++            (unsigned long long)mf->get_addr(), mf->is_write() ? 'W' : 'R');
++}
++
+ memory_partition_unit::memory_partition_unit(
+     unsigned partition_id, const memory_config *config,
+     class memory_stats_t *stats, class gpgpu_sim *gpu,
+@@ -320,6 +356,7 @@ bool memory_partition_unit::hbf_cycle() {
+     // local subpartitions because a different stack may still accept work.
+     if (m_hbf_system->full(mf->get_addr(), mf->is_write())) continue;
+     m_sub_partition[spid]->L2_dram_queue_pop();
++    trace_mem_access(mf, true);
+     m_hbf_system->push(mf);
+     mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE,
+                    m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+@@ -412,6 +449,9 @@ bool memory_partition_unit::hbf_direct_cycle() {
+     m_hbf_credits_used++;
+     st.admitted++;
+     m_hbf_issue_cycle[mf] = mf->get_status_change_cycle();
++    // Logged when it leaves the L2 for the HBF port (before the front-end
++    // latency), like DRAM requests are logged when they enter the DRAM path.
++    trace_mem_access(mf, true);
+     mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE, now);
+     hbf_delay_t d;
+     d.ready_cycle = now + m_hbf_frontend_cycles;
+@@ -526,6 +566,7 @@ void memory_partition_unit::simple_dram_model_cycle() {
+           "Issue mem_fetch request %p from sub partition %d to dram\n", mf,
+           spid);
+ 
++      trace_mem_access(mf, false);
+       dram_delay_t d;
+       d.req = mf;
+       d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+@@ -599,6 +640,7 @@ void memory_partition_unit::dram_cycle() {
+       MEMPART_DPRINTF(
+           "Issue mem_fetch request %p from sub partition %d to dram\n", mf,
+           spid);
++      trace_mem_access(mf, false);
+       dram_delay_t d;
+       d.req = mf;
+       d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+diff --git a/src/gpgpu-sim/l2cache.h b/src/gpgpu-sim/l2cache.h
+index de17941b..25291d82 100644
+--- a/src/gpgpu-sim/l2cache.h
++++ b/src/gpgpu-sim/l2cache.h
+@@ -306,6 +306,8 @@ class memory_partition_unit {
+   // -gpgpu_hbf_attach 1/2: own credit pool, front-end latency queue and
+   // (attach 2) the PHY token bucket shared with HBM traffic.
+   bool hbf_direct_cycle();
++  // -gpgpu_mem_access_trace_file: log a request issued to the memory device
++  void trace_mem_access(mem_fetch *mf, bool to_hbf);
+   unsigned m_hbf_credits_used;
+   unsigned long long m_hbf_frontend_cycles;  // core cycles
+   struct hbf_delay_t {
+-- 
+2.43.0
+

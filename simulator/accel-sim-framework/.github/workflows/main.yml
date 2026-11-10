@@ -1,0 +1,231 @@
+# Accel-Sim CI Workflow
+#
+# This workflow runs on push and pull request events.
+# Jobs: check-format, SASS-Simulation, PTX-Simulation, Tracer-Tool
+
+name: CI Runs
+
+on:
+  push:
+  # Required for cross-repo PRs: a PR from a fork does not fire `push` in this
+  # repo, so without this the PR gets no CI at all.
+  pull_request:
+  workflow_dispatch:
+
+env:
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+  GITHUB_EVENT_NAME: ${{ github.event_name }}
+  GITHUB_REPOSITORY: ${{ github.repository }}
+  GITHUB_RUN_NUMBER: ${{ github.run_number }}
+  GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+
+jobs:
+  check-format:
+    runs-on: tgrogers-raid
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for forbidden files
+        run: ./.github/scripts/check-forbidden-files.sh
+
+      - name: Check code formatting
+        run: |
+          /bin/bash ./gpu-simulator/format-code.sh
+          /bin/bash ./util/tracer_nvbit/tracer_tool/format-code.sh
+
+          if git diff --quiet; then
+            echo "Code is properly formatted"
+          else
+            echo "Code formatting check failed. The following files need formatting:"
+            git diff --name-only
+            echo ""
+            echo "Please run the formatter locally and commit the changes:"
+            echo "/bin/bash ./format-code.sh"
+            exit 1
+          fi
+
+  SASS-Simulation:
+    runs-on: tgrogers-raid
+    needs: [check-format]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Environment
+        run: ./.github/scripts/main-sass.sh setup
+
+      - name: Build Accel-Sim
+        run: ./.github/scripts/main-sass.sh build 2>&1 | tee build.log
+
+      - name: Run SASS Simulations
+        run: ./.github/scripts/main-sass.sh simulate
+
+      - name: Archive Stats
+        run: ./.github/scripts/main-sass.sh archive
+
+      - name: Correlate Ubench
+        run: ./.github/scripts/main-sass.sh correlate
+
+      - name: Analyze success with opencode
+        if: success()
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          rm -f ci-analysis-report.md
+          opencode run \
+            --dir "$GITHUB_WORKSPACE" \
+            --model local-llamacpp/Qwen3.5-27B-Q8_0.gguf \
+            "Follow the procedure in .github/skills/ci-analysis.md to analyze this successful CI run. Write your final report to ci-analysis-report.md as instructed." \
+            || true
+          if [ -s ci-analysis-report.md ]; then
+            cat ci-analysis-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## AI Simulation Analysis"
+              echo
+              echo "opencode did not produce \`ci-analysis-report.md\`. See the step log for details."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Analyze failure with opencode
+        if: failure()
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          rm -f ci-failure-report.md
+          opencode run \
+            --dir "$GITHUB_WORKSPACE" \
+            --model local-llamacpp/Qwen3.5-27B-Q8_0.gguf \
+            "Follow the procedure in .github/skills/ci-failure.md to analyze this failed CI run. Write your final report to ci-failure-report.md as instructed." \
+            || true
+          if [ -s ci-failure-report.md ]; then
+            cat ci-failure-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## AI Failure Analysis"
+              echo
+              echo "opencode did not produce \`ci-failure-report.md\`. See the step log for details."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  PTX-Simulation:
+    needs: [check-format]
+    runs-on: tgrogers-raid
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Environment
+        run: ./.github/scripts/main-ptx.sh setup
+
+      - name: Build Accel-Sim
+        run: ./.github/scripts/main-ptx.sh build
+
+      - name: Build Applications
+        run: ./.github/scripts/main-ptx.sh build-apps
+
+      - name: Run PTX Simulations
+        run: ./.github/scripts/main-ptx.sh simulate
+
+  Tracer-Tool:
+    needs: [check-format]
+    runs-on: tgrogers-raid
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Environment
+        run: ./.github/scripts/main-tracer.sh setup
+
+      - name: Build Accel-Sim
+        run: ./.github/scripts/main-tracer.sh build
+
+      - name: Build Tracer
+        run: ./.github/scripts/main-tracer.sh build-tracer
+
+      - name: Build Applications
+        run: ./.github/scripts/main-tracer.sh build-apps
+
+      - name: Generate Traces
+        run: ./.github/scripts/main-tracer.sh trace
+
+      - name: Generate HW Stats
+        run: ./.github/scripts/main-tracer.sh hw-stats
+
+      - name: Test New Traces
+        run: ./.github/scripts/main-tracer.sh test
+
+  SASS-Simulation-Docker:
+    needs: [check-format]
+    runs-on: tgrogers-pc01
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Simulation
+        run: echo "Docker-based CI tests are currently disabled."
+
+  CI-Success:
+    env:
+      ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    runs-on: tgrogers-raid
+    needs: [check-format, SASS-Simulation, PTX-Simulation, Tracer-Tool, SASS-Simulation-Docker]
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          echo "All CI tests completed successfully!"
+          echo "check-format: OK"
+          echo "SASS-Simulation: OK"
+          echo "PTX-Simulation: OK"
+          echo "Tracer-Tool: OK"
+          echo "SASS-Simulation-Docker: OK"
+
+          git clone --quiet --branch cluster-ubuntu git@github.com:purdue-aalp/env-setup.git
+          source ./env-setup/common/common_inc.sh
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            export REPORT_URL="https://rawcdn.githack.com/accel-sim/statistics-archive/$PR_HEAD_REPO_FULL_NAME/$BRANCH_NAME/ubench/"
+            python3 .github/scripts/send_ci_email.py -t success
+          fi
+
+  failures:
+    if: failure()
+    env:
+      ACTION_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REPORT_URL: ""
+    runs-on: tgrogers-raid
+    needs: [check-format, SASS-Simulation, PTX-Simulation, Tracer-Tool, SASS-Simulation-Docker]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Notify Failure
+        run: |
+          git clone --quiet --branch cluster-ubuntu git@github.com:purdue-aalp/env-setup.git
+          source ./env-setup/common/common_inc.sh
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            python3 .github/scripts/send_ci_email.py -t failure
+          elif [[ ${{ github.event_name }} == 'push' && ${{ github.ref_name }} == 'dev' ]]; then
+            python3 .github/scripts/send_ci_email.py -t failure -u
+          fi
+
+  cleanup-on-cancel:
+    if: cancelled()
+    runs-on: tgrogers-raid
+    needs: [SASS-Simulation, PTX-Simulation, Tracer-Tool]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Cancel Slurm jobs
+        run: |
+          ./.github/scripts/cancel-slurm-jobs.sh "sass-short-${{ github.run_number }}_${{ github.run_attempt }}"
+          ./.github/scripts/cancel-slurm-jobs.sh "short-ptx-${{ github.run_number }}_${{ github.run_attempt }}"
+          ./.github/scripts/cancel-slurm-jobs.sh "rodinia_2.0-ft-$$"

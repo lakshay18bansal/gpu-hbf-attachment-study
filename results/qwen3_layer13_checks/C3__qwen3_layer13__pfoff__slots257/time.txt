@@ -1,0 +1,23 @@
+	Command being timed: "/home/lakshay/btp_work/hbm_hbf_study/sim/run_sim.sh /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/C3__qwen3_layer13__pfoff__slots257 -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_hbf_credits 257 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/qwen3_1p7b/trace/list_layer13.g"
+	User time (seconds): 3789.21
+	System time (seconds): 15.72
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:03:16
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 286728
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 100
+	Minor (reclaiming a frame) page faults: 99477
+	Voluntary context switches: 216934
+	Involuntary context switches: 6399
+	Swaps: 0
+	File system inputs: 144
+	File system outputs: 29696
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

@@ -1,0 +1,5 @@
+C2 vectoradd_nohbf prefetch=off rc=0
+  cycles 84,522  time 59.94 us  kernels 1  insn 14,680,064
+  L2 accesses 393,216 misses 311,296
+  HBM/DRAM read 5,767,168 B write 1,310,720 B = 118.07 GB/s of 387.07
+  HBF requests 0 page reads 0 MSHR hits 0 bytes read 0 = 0.00 GB/s; read latency avg None cycles

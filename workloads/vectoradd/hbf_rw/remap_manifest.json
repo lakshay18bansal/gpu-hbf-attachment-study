@@ -1,0 +1,32 @@
+{
+  "tool": "tools/remap_ranges.py",
+  "source": "./workloads/vectoradd/work/kernelslist.g",
+  "base": "0x4000000000",
+  "align": 4096,
+  "inputs_sha256": {
+    "kernel-1-ctx_0x58c3df702fd0.traceg": "54e8379539b47646cac4419d77d747b8dae4508258023ec8f63469abb11a2433"
+  },
+  "ranges": [
+    {
+      "name": "",
+      "lo": "0x7d8162a00000",
+      "size": 4194304,
+      "new": "0x4000000000",
+      "lanes_rewritten": 1048577
+    },
+    {
+      "name": "",
+      "lo": "0x7d8162e00000",
+      "size": 4194304,
+      "new": "0x4000400000",
+      "lanes_rewritten": 1048577
+    },
+    {
+      "name": "",
+      "lo": "0x7d8163200000",
+      "size": 4194304,
+      "new": "0x4000800000",
+      "lanes_rewritten": 1048576
+    }
+  ]
+}

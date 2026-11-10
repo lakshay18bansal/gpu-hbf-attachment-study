@@ -1,0 +1,2850 @@
+diff --git a/configs/accelsim/README.md b/configs/accelsim/README.md
+new file mode 100644
+index 0000000..d5960d4
+--- /dev/null
++++ b/configs/accelsim/README.md
+@@ -0,0 +1,114 @@
++# Memory configs for Accel-Sim (RTX 2060 Super)
++
++Each `.py` file here describes the **whole DRAM system** of the GPU for Ramulator 2.1: device,
++timings, clock, number of channels, controller queues, scheduler, row policy, refresh, address
++mapping inside a channel and the fixed latency of the memory-controller front end. When a run uses
++one of these files, Accel-Sim's own DRAM options in `gpgpusim.config` are **not used** (the run's
++`simulation.log` lists them under "GPGPU-Sim DRAM options NOT used").
++
++| File | What it models |
++|---|---|
++| `gddr6_rtx2060s.py` | The card's real memory: 16 x 16-bit GDDR6 @ 14 Gbps = 448 GB/s, 8 GB, Samsung datasheet timings, all-bank refresh |
++| `hbm3_rtx2060s.py` | Hypothetical: one HBM3 stack, 16 x 64-bit channels @ 6.4 Gbps = 819 GB/s, 16 GB |
++| `gpgpusim_builtin_rtx2060s.py` | Validation: Accel-Sim's built-in DRAM model with the parameters of `SM75_RTX2060_S/gpgpusim.config`, rebuilt in Ramulator |
++| `accelsim_common.py` | Shared helpers (do not need editing) |
++
++## Editing a config
++
++Open the file and change values in the block marked `EDIT HERE`. No rebuild is needed:
++`scripts/simulate.sh` exports the `.py` to YAML at the start of every run, and copies both into the
++run folder (`ramulator_config.py`, `ramulator_config.yaml`).
++
++To try a value for one run without editing the file, use `--ram-set` (several values separated by
++commas):
++
++```bash
++scripts/simulate.sh cuda RTX2060S t4_vectoradd --power --dram gddr6_rtx2060s --ram-set "DATA_RATE_MBPS=28000"
++```
++
++To keep a variant, copy the file (e.g. `gddr6_fast.py`) and use `--dram gddr6_fast`.
++
++### Parameters (GDDR6 and HBM3 configs)
++
++| Parameter | Meaning | Effect |
++|---|---|---|
++| `CHANNELS` | Number of DRAM channels (one Ramulator controller each) | Must equal `-gpgpu_n_mem` in `gpgpusim.config` (16); the run stops with an error otherwise. Changing it means changing the GPU (L2 slices, interleaving) too. |
++| `DATA_RATE_MBPS` | Data rate per pin | **Bandwidth knob.** Peak = CHANNELS x channel width x rate / 8. The clock (tCK) changes; every timing keeps its value in **nanoseconds** (except burst length and the few timings the standard defines in clock cycles, listed in `CLOCK_TIMINGS`), so bandwidth scales and latency does not. |
++| `READ_BUFFER`, `WRITE_BUFFER` | Controller queue sizes per channel | Also set how many requests a channel may have outstanding: 2 x (read + write). |
++| `FIXED_LATENCY_NS` | Fixed latency of the memory-controller front end, added before a request reaches the controller | Replaces Accel-Sim's `-dram_latency`. Default `core_cycles_to_ns(100)` = 100 GPU core cycles at the run's core clock (read from `-gpgpu_clock_domains` by `simulate.sh`; 52.49 ns at 1905 MHz). |
++| `ORG` | e.g. `{"bank": 8}`, `{"pseudochannel": 4}` | Organization of one channel on top of `ORG_PRESET`: `pseudochannel`, `sid`, `bankgroup`, `bank`, `row`, `column`, `stack_height`, `dq`, `die_density`, `channel_density` (powers of two). With `--ram-set`: `org.bank=8`. Refresh timings are recomputed for the new organization; sizes Ramulator has no refresh data for are rejected. |
++| `REFRESH` | `allbank`, `perbank`, `hbm_perbank` (HBM3) or `none` | Refresh blocks banks periodically. HBM3 default `allbank`: Ayna has no energy model for per-bank refresh, and Ramulator's HBM3 controller stalls the whole channel while a per-bank refresh waits. |
++| `DRAM_POWER_MODEL` | `ayna` (HBM only; HBM3 default) or `none` (GDDR6) | `ayna` adds Ramulator's Ayna HBM power model to every channel. The run's `summary.txt` then shows **combined power** = AccelWattch (GPU chip) + Ayna (DRAM) instead of AccelWattch's GDDR6-fitted DRAM part (`scripts/combined_power.py`). `none`: DRAM power from AccelWattch (calibrated on the real card's GDDR6). |
++| `AYNA` | e.g. `{"dq_rate": 0.5, "tsv_rate": 0.5}` | Ayna options: data toggle rates (0 = static data, 1 = max toggling; default 0.5 = random data) or currents (`iDD4R`, ...). |
++| `SCHEDULER` | `GPGPUSimFRFCFS` (default), `FRFCFS`, `FRFCFSRowHit` | Command scheduling. `GPGPUSimFRFCFS` = classic FR-FCFS as in Accel-Sim's built-in model: an open row is not closed while queued requests hit it, then ready / row hit / oldest. Ramulator's `FRFCFS` is "ready, then oldest" and closes rows that still have queued hits. |
++| `WR_HIGH_WATERMARK`, `WR_LOW_WATERMARK` | 0.8 / 0.2 (Ramulator defaults) | The controller switches to writes when its write queue is more than HIGH full (or no reads wait) and back to reads below LOW. Need 0 < LOW < HIGH <= 1. |
++| `ROW_POLICY` | `open` or `closed` | Keep rows open after an access or close them. |
++| `ADDR_MAPPER` | `GPUBgCoBaRo` (GPU-style, default), `RoBaRaCoCh`, `MOP4CLXOR`, `ChRaBaRoCo` | How an address inside a channel is split into bank group / bank / row / column. |
++| `TIMING_CYCLES` | e.g. `{"nCL": 30}` | Override individual timings in clock cycles. With `--ram-set`: `nCL=30`. |
++| `TIMING_NS` | e.g. `{"nRCDRD": 20.0}` | Override individual timings in nanoseconds. With `--ram-set`: `ns.nRCDRD=20`. |
++
++`ORG_PRESET` / `TIMING_PRESET` choose the device and its base timings from Ramulator's presets
++(`ramulator/python/ramulator/dram/gddr6.py`, `hbm3.py`). Timing names: `nCL` (CAS latency),
++`nRCDRD`/`nRCDWR` (activate to read/write), `nRP` (precharge), `nRAS`, `nRC`, `nBL` (burst),
++`nCCDS`/`nCCDL` (column to column, different/same bank group), `nRRDS`/`nRRDL` (activate to
++activate), `nFAW` (four-activate window), `nWR` (write recovery), `nRTP`, `nCWL`, `nWTRS`/`nWTRL`,
++`nRTW`.
++
++### How to double the memory bandwidth
++
++- GDDR6: `DATA_RATE_MBPS` 14000 -> 28000 (448 -> 896 GB/s).
++- HBM3: `DATA_RATE_MBPS` 6400 -> 12800 (819 -> 1638 GB/s).
++- Validation config: `DRAM_CLOCK_MHZ` 3500 -> 7000. Its timings are in clock cycles (as in
++  `gpgpusim.config`), so this also halves every latency in nanoseconds, exactly like changing the
++  DRAM clock of Accel-Sim's built-in model.
++
++Doubling `CHANNELS` would also double bandwidth, but needs the GPU side changed as well
++(`-gpgpu_n_mem`), so it is a different GPU.
++
++### HBM3 organization (`hbm3_rtx2060s.py`)
++
++`ORG_PRESET = "HBM3_16Gb_8hi"`: per channel 2 pseudo-channels x 2 SIDs (stack IDs, groups of
++core dies) x 4 bank groups x 4 banks, 16384 rows, 1 GB. Other presets in
++`ramulator/python/ramulator/dram/hbm3.py` (`HBM3_16Gb_4hi`, `HBM3_8Gb_8hi`, `HBM3_32Gb_8hi`,
++`HBM3_32Gb_16hi`). Single organization fields can be changed with keyword overrides in
++`make_dram()` (e.g. `bank=8`) as long as they stay powers of two.
++
++The HBM **base (logic) die** is not a separate component in Ramulator: its effects are inside the
++DRAM timings (CL, tRCD, nCCDR between SIDs, ...), the HBM3 controller's command-bus rules
++(`ramulator/src/ramulator/controller/impl/hbm34_controller.cpp`) and, for energy, Ramulator's Ayna
++power plugin (`ramulator/src/ramulator/power/`, TSV and I/O terms), which these configs do not use
++(power comes from AccelWattch).
++
++### Validation config (`gpgpusim_builtin_rtx2060s.py`)
++
++Its parameters have the same names as in `-gpgpu_dram_timing_opt` and are in DRAM clock cycles.
++It uses `PassThroughAddrMapper`, i.e. bank/row/column come from Accel-Sim's own address decode
++(`-gpgpu_mem_addr_mapping`, `-dram_bnkgrp_indexing_policy`), so the comparison isolates the DRAM
++timing model.
++
++## Power
++
++| Run uses | GPU chip power | DRAM power |
++|---|---|---|
++| Accel-Sim built-in DRAM, or `gddr6_rtx2060s` | AccelWattch | AccelWattch (per read/write/precharge, calibrated on the RTX 2060 Super's GDDR6) |
++| `hbm3_rtx2060s` (`DRAM_POWER_MODEL=ayna`) | AccelWattch | Ayna (Ramulator; command- and current-based HBM model, HBM3E characterization) |
++
++The per-kernel combination is in `power_combined.csv` and `summary.txt` of each HBM run.
++
++## What stays in Accel-Sim (GPU side)
++
++The SMs, L1/L2 caches, interconnect and memory partitions, and which channel (and L2 slice) an
++address belongs to: `-gpgpu_n_mem`, `-gpgpu_n_sub_partition_per_mchannel`, the channel bits of
++`-gpgpu_mem_addr_mapping`, `-gpgpu_memory_partition_indexing`, `-gpgpu_cache:dl2`,
++`-gpgpu_dram_partition_queues`, `-gpgpu_l2_rop_latency`.
++
++## Ramulator components used (C++)
++
++In `ramulator/src/ramulator/gpgpusim/`:
++- `GPGPUSim` frontend (`gpgpusim_frontend.cpp`): requests come from Accel-Sim; holds `fixed_latency_ns`.
++- `GPGPUSimCounter` controller plugin (`gpgpusim_counter.cpp`): per-channel ACT/PRE/RD/WR/REF counts
++  for Accel-Sim's stats and AccelWattch.
++- `GPUBgCoBaRo` address mapper (`gpu_bg_co_ba_ro.cpp`).
++
++Every config must use the `GPGPUSim` frontend, `PassThroughChannelMapper` (Accel-Sim picks the
++channel) and a `GPGPUSimCounter` in every controller; `accelsim_common.build_system()` does this.
+diff --git a/configs/accelsim/accelsim_common.py b/configs/accelsim/accelsim_common.py
+new file mode 100644
+index 0000000..bbadee7
+--- /dev/null
++++ b/configs/accelsim/accelsim_common.py
+@@ -0,0 +1,212 @@
++"""Helpers shared by the Accel-Sim memory configs in this folder.
++
++A config file defines a dict of parameters (its "EDIT HERE" block) and calls
++build_system(). Any parameter can also be overridden for one run, without
++editing the file, through the environment variable RAMULATOR_SET:
++
++    RAMULATOR_SET="DATA_RATE_MBPS=28000,REFRESH=none"
++
++(scripts/simulate.sh passes --ram-set "..." through as RAMULATOR_SET).
++Timing parameters can be overridden the same way: "nCL=30" sets nCL in clock
++cycles, "ns.nCL=15" sets it in nanoseconds; organization fields with "org.":
++"org.bank=8", "org.pseudochannel=4".
++"""
++
++import math
++import os
++
++import ramulator
++import ramulator.power  # Ayna DRAM power model config
++
++
++def gpu_core_clock_mhz():
++    """GPU core clock of the run: first value of -gpgpu_clock_domains (passed in by
++    scripts/simulate.sh as GPU_CORE_CLOCK_MHZ; 1905 MHz = SM75_RTX2060_S default)."""
++    return float(os.environ.get("GPU_CORE_CLOCK_MHZ", "1905"))
++
++
++def core_cycles_to_ns(cycles):
++    """GPU core cycles -> ns at the run's core clock (keeps a latency fixed in cycles)."""
++    return cycles / gpu_core_clock_mhz() * 1e3
++
++
++def apply_overrides(params):
++    """Return params updated from RAMULATOR_SET (type follows the default)."""
++    params = dict(params)
++    # Write drain: the controller switches to writes when its write queue is more
++    # than WR_HIGH_WATERMARK full (or no reads wait), and back to reads below
++    # WR_LOW_WATERMARK (Ramulator defaults 0.8 / 0.2)
++    params.setdefault("WR_HIGH_WATERMARK", 0.8)
++    params.setdefault("WR_LOW_WATERMARK", 0.2)
++    # DRAM power model inside Ramulator: "ayna" (HBM2/HBM3/HBM4 only) or "none".
++    # With "ayna", Accel-Sim reports a combined power: AccelWattch for the GPU chip
++    # + Ayna for the DRAM (see scripts/combined_power.py).
++    params.setdefault("DRAM_POWER_MODEL", "none")
++    params.setdefault("TIMING_CYCLES", {})
++    params.setdefault("TIMING_NS", {})
++    params.setdefault("ORG", {})
++    spec = os.environ.get("RAMULATOR_SET", "").strip()
++    if not spec:
++        return params
++    for item in spec.replace(";", ",").split(","):
++        item = item.strip()
++        if not item:
++            continue
++        if "=" not in item:
++            raise ValueError(f"RAMULATOR_SET: expected KEY=VALUE, got '{item}'")
++        key, value = (x.strip() for x in item.split("=", 1))
++        if key.startswith("ns."):
++            params["TIMING_NS"][key[3:]] = float(value)
++        elif key.startswith("org."):
++            params["ORG"][key[4:]] = int(value)
++        elif key.startswith("n") and key not in params:
++            params["TIMING_CYCLES"][key] = int(value)
++        elif key in params:
++            default = params[key]
++            if isinstance(default, bool):
++                params[key] = value.lower() in ("1", "true", "yes", "on")
++            elif isinstance(default, int):
++                params[key] = int(float(value))
++            elif isinstance(default, float):
++                params[key] = float(value)
++            else:
++                params[key] = value
++        else:
++            raise ValueError(f"RAMULATOR_SET: unknown parameter '{key}' "
++                             f"(known: {', '.join(sorted(params))})")
++    return params
++
++
++def timings_at_rate(std_cls, org_preset, timing_preset, data_rate_mbps,
++                    clock_timings, org=None):
++    """Resolve a Ramulator timing preset and re-express it at another data rate.
++
++    Timings in `clock_timings` (e.g. the burst length) keep their cycle count;
++    every other timing keeps its value in nanoseconds, so changing the data rate
++    changes bandwidth but not DRAM latency. Returns (timings, tCK_ps).
++    """
++    # organization overrides matter: refresh timings depend on density, stack height, banks
++    _, base = std_cls(org_preset=org_preset, timing_preset=timing_preset, **(org or {})).resolve()
++    base_tck, base_rate = base["tCK_ps"], base["rate"]
++    tck = base_tck * base_rate / data_rate_mbps
++    out = {}
++    for name, value in base.items():
++        if name in ("rate", "tCK_ps") or value is None or value < 0:
++            continue
++        if name in clock_timings:
++            out[name] = value
++        else:
++            out[name] = max(1, math.ceil(value * base_tck / tck - 1e-6))
++    out["rate"] = int(data_rate_mbps)
++    out["tCK_ps"] = int(round(tck))
++    return out
++
++
++def ns_to_cycles(ns, tck_ps):
++    return max(1, math.ceil(ns * 1000.0 / tck_ps - 1e-6))
++
++
++def _org_text(org):
++    keys = [k for k in ("stack_height", "pseudochannel", "sid", "bankgroup", "bank", "row",
++                        "column", "dq", "channel_density") if k in org]
++    return " ".join(f"{k}={org[k]}" for k in keys)
++
++
++def build_system(p, make_dram, controller_cls):
++    """Build the full DRAM system: one controller per GPU memory channel.
++
++    p             parameter dict (after apply_overrides)
++    make_dram     function returning a new DRAM spec object (one per channel)
++    controller_cls Ramulator controller class (e.g. ramulator.controller.GenericDDR)
++    """
++    refresh = {
++        "none": ramulator.refresh_manager.NoRefresh,
++        "allbank": ramulator.refresh_manager.AllBank,
++        "perbank": ramulator.refresh_manager.PerBank,
++        "hbm_perbank": ramulator.refresh_manager.HBM34PerBankRefresh,
++    }
++    if not 0 < p["WR_LOW_WATERMARK"] < p["WR_HIGH_WATERMARK"] <= 1:
++        # Ramulator leaves write mode when the write queue is *below* the low
++        # watermark, so 0 would keep it in write mode forever (GPU deadlock)
++        raise ValueError("need 0 < WR_LOW_WATERMARK < WR_HIGH_WATERMARK <= 1")
++    if p["REFRESH"] not in refresh:
++        raise ValueError(f"REFRESH must be one of {sorted(refresh)}")
++    scheduler = {"GPGPUSimFRFCFS": ramulator.scheduler.GPGPUSimFRFCFS,
++                 "FRFCFS": ramulator.scheduler.FRFCFS,
++                 "FRFCFSRowHit": ramulator.scheduler.FRFCFSRowHit}[p["SCHEDULER"]]
++    row_policy = {"open": ramulator.row_policy.Open,
++                  "closed": ramulator.row_policy.ClosedCAP}[p["ROW_POLICY"]]
++    mapper = getattr(ramulator.addr_mapper, p["ADDR_MAPPER"])
++    if p["DRAM_POWER_MODEL"] not in ("none", "ayna"):
++        raise ValueError("DRAM_POWER_MODEL must be 'ayna' or 'none'")
++    is_hbm = type(make_dram()).__name__.startswith("HBM")
++    if is_hbm and p["REFRESH"] == "perbank":
++        raise ValueError("REFRESH=perbank is the DDR/GDDR per-bank refresh; for HBM use "
++                         "hbm_perbank (or allbank / none)")
++    if not is_hbm and p["REFRESH"] == "hbm_perbank":
++        raise ValueError("REFRESH=hbm_perbank is for HBM3/HBM4 only; use perbank, allbank or none")
++    if p["DRAM_POWER_MODEL"] == "ayna" and p["REFRESH"] in ("perbank", "hbm_perbank"):
++        raise ValueError("DRAM_POWER_MODEL=ayna: Ayna does not model per-bank refresh (REFpb), so its "
++                         "energy would be missing; use REFRESH=allbank or none")
++    if p["DRAM_POWER_MODEL"] == "ayna" and not type(make_dram()).__name__.startswith("HBM"):
++        raise ValueError("DRAM_POWER_MODEL=ayna: Ayna models HBM2/HBM3/HBM4 only "
++                         f"(this config uses {type(make_dram()).__name__}); use 'none'")
++
++    def plugins():
++        # GPGPUSimCounter is required by Accel-Sim: per-channel command counts for
++        # its stats and AccelWattch (DRAM energy = reads, writes and precharges)
++        out = [ramulator.controller_plugin.GPGPUSimCounter()]
++        if p["DRAM_POWER_MODEL"] == "ayna":
++            # Ayna HBM power model (CMU-SAFARI HBM-Power): command- and
++            # current-based DRAM energy, reported per channel in ramulator_stats
++            out.append(ramulator.controller_plugin.Ayna(
++                power=ramulator.power.ayna_power(**p.get("AYNA", {}))))
++        return out
++
++    controllers = []
++    for _ in range(p["CHANNELS"]):
++        controllers.append(controller_cls(
++            dram=make_dram(),
++            read_buffer_size=p["READ_BUFFER"],
++            write_buffer_size=p["WRITE_BUFFER"],
++            wr_high_watermark=float(p["WR_HIGH_WATERMARK"]),
++            wr_low_watermark=float(p["WR_LOW_WATERMARK"]),
++            scheduler=scheduler(),
++            refresh_manager=refresh[p["REFRESH"]](),
++            row_policy=row_policy(),
++            addr_mapper=mapper(),
++            controller_plugins=plugins(),
++        ))
++
++    frontend = ramulator.frontend.GPGPUSim(
++        clock_ratio=1, fixed_latency_ns=float(p["FIXED_LATENCY_NS"]))
++    memory = ramulator.memory_system.GenericDRAM(
++        clock_ratio=1,
++        controllers=controllers,
++        # Accel-Sim decides the channel (GPU memory partition) of each request
++        channel_mapper=ramulator.channel_mapper.PassThroughChannelMapper(),
++    )
++    return ramulator.Simulation(frontend, memory)
++
++
++def summary(p, org, timings, channel_width_bits, tck_ps, ticks_per_ck=1):
++    """One-paragraph description printed by simulate.sh.
++
++    org: resolved organization dict (or None); its data width replaces channel_width_bits
++    (HBM: pseudo-channels x dq bits per channel)."""
++    if org:
++        channel_width_bits = (org["pseudochannel"] * org["dq"] if "pseudochannel" in org
++                              else org["channel_width"])
++    rate = timings.get("rate", 0)
++    bw = p["CHANNELS"] * channel_width_bits * rate / 8 / 1000  # GB/s
++    t = lambda n: f"{n}={timings[n]} ({timings[n] * tck_ps / 1000:.2f} ns)"
++    keys = [k for k in ("nCL", "nRCDRD", "nRP", "nRAS", "nRC", "nBL", "nCCDS",
++                        "nCCDL", "nRRDS", "nFAW", "nWR") if k in timings]
++    return (f"{p['CHANNELS']} channels x {channel_width_bits}-bit at {rate} Mbps/pin"
++            f" = {bw:.1f} GB/s peak; clock {1e6 / tck_ps:.1f} MHz"
++            f" (tCK {tck_ps} ps); refresh {p['REFRESH']}; mapper {p['ADDR_MAPPER']};"
++            f" buffers {p['READ_BUFFER']}/{p['WRITE_BUFFER']};"
++            f" fixed latency {p['FIXED_LATENCY_NS']:.3f} ns"
++            + (f"; organization per channel: {_org_text(org)}" if org else "")
++            + "\n  timings (cycles): "
++            + ", ".join(t(k) for k in keys))
+diff --git a/configs/accelsim/gddr6_rtx2060s.py b/configs/accelsim/gddr6_rtx2060s.py
+new file mode 100644
+index 0000000..4c7df7a
+--- /dev/null
++++ b/configs/accelsim/gddr6_rtx2060s.py
+@@ -0,0 +1,61 @@
++"""Ramulator config: realistic GDDR6 for the RTX 2060 Super (its real memory type).
++
++16 channels x 16-bit GDDR6 (one 8 Gb x16 device per channel, 512 MB each, 8 GB
++total). Timings: Ramulator's GDDR6_14000_1350mV_double preset (Samsung
++K4Z80325BC datasheet).
++
++Bandwidth knob: DATA_RATE_MBPS. Changing it changes the clock (tCK) and keeps
++every timing at the same value in nanoseconds (except the ones listed in
++CLOCK_TIMINGS, which are fixed numbers of clock cycles in the GDDR6 standard),
++so bandwidth scales and DRAM latency stays the same:
++    peak bandwidth = CHANNELS x 16 bit x DATA_RATE_MBPS / 8
++    14000 Mbps -> 448 GB/s (real card), 28000 -> 896 GB/s, 7000 -> 224 GB/s
++"""
++import os
++import sys
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++import ramulator  # noqa: E402
++from accelsim_common import (apply_overrides, build_system, core_cycles_to_ns,  # noqa: E402
++                             ns_to_cycles, summary, timings_at_rate)
++
++# ============================ EDIT HERE ======================================
++P = {
++    "CHANNELS": 16,               # must equal -gpgpu_n_mem of the GPU config
++    "DATA_RATE_MBPS": 14000,      # per-pin data rate (bandwidth knob)
++    "READ_BUFFER": 64,            # controller read queue per channel
++    "WRITE_BUFFER": 64,           # controller write queue per channel
++    "FIXED_LATENCY_NS": core_cycles_to_ns(100),  # memory-controller front end: 100 GPU core
++                                  # cycles at the GPU's core clock (52.49 ns @ 1905 MHz)
++    "REFRESH": "allbank",         # allbank | perbank | none
++    "SCHEDULER": "GPGPUSimFRFCFS",  # GPGPUSimFRFCFS (row hits first, as Accel-Sim) | FRFCFS | FRFCFSRowHit
++    "ROW_POLICY": "open",         # open | closed
++    "ADDR_MAPPER": "GPUBgCoBaRo",  # GPUBgCoBaRo | RoBaRaCoCh | MOP4CLXOR | ChRaBaRoCo
++    # DRAM power: Ramulator has no GDDR6 power model, so DRAM power comes from
++    # AccelWattch (calibrated on the real RTX 2060 Super's GDDR6)
++    "DRAM_POWER_MODEL": "none",
++    "TIMING_CYCLES": {},          # e.g. {"nCL": 30}         (clock cycles)
++    "TIMING_NS": {},              # e.g. {"nRCDRD": 20.0}    (nanoseconds)
++    "ORG": {},                    # organization overrides, e.g. {"row": 1 << 15}
++}
++ORG_PRESET = "GDDR6_8Gb_x16"
++TIMING_PRESET = "GDDR6_14000_1350mV_double"
++# Defined in clock cycles by the GDDR6 standard (do not scale with the clock)
++CLOCK_TIMINGS = {"nBL", "nCCDS", "nCCDL", "nPPD", "nRTP", "nCWL"}
++# =============================================================================
++P = apply_overrides(P)
++
++T = timings_at_rate(ramulator.dram.GDDR6, ORG_PRESET, TIMING_PRESET,
++                    P["DATA_RATE_MBPS"], CLOCK_TIMINGS, P["ORG"])
++T["nRTW"] = T["nCL"] + 2 * T["nBL"] - T["nCWL"] + 3  # Ramulator's GDDR6 formula
++T.update(P["TIMING_CYCLES"])
++T.update({k: ns_to_cycles(v, T["tCK_ps"]) for k, v in P["TIMING_NS"].items()})
++
++
++def make_dram():
++    return ramulator.dram.GDDR6(org_preset=ORG_PRESET, timing_preset=TIMING_PRESET, **P["ORG"], **T)
++
++
++ORG, _ = make_dram().resolve()
++sim = build_system(P, make_dram, ramulator.controller.GenericDDR)
++SUMMARY = "GDDR6: " + summary(P, ORG, T, 16, T["tCK_ps"])
+diff --git a/configs/accelsim/gpgpusim_builtin_rtx2060s.py b/configs/accelsim/gpgpusim_builtin_rtx2060s.py
+new file mode 100644
+index 0000000..3a88252
+--- /dev/null
++++ b/configs/accelsim/gpgpusim_builtin_rtx2060s.py
+@@ -0,0 +1,92 @@
++"""Ramulator config: GPGPU-Sim's OWN DRAM model of the RTX 2060 Super, rebuilt in Ramulator.
++
++Purpose: validation. Every parameter below is copied from
++accel-sim-framework/gpu-simulator/gpgpu-sim/configs/tested-cfgs/SM75_RTX2060_S/gpgpusim.config
++and derived the way GPGPU-Sim does it (memory_config::init in gpu-sim.h), so a
++run with this config should closely match a run with GPGPU-Sim's built-in DRAM
++model. Bank/row/column come from GPGPU-Sim's own address decode
++(-gpgpu_mem_addr_mapping) through PassThroughAddrMapper.
++
++All timings are in cycles of the DRAM command clock (DRAM_CLOCK_MHZ), as in
++-gpgpu_dram_timing_opt.
++
++Scheduler: GPGPUSimFRFCFS (ramulator/src/ramulator/gpgpusim/gpgpusim_frfcfs.cpp)
++implements GPGPU-Sim's policy: an open row is not closed while queued requests
++hit it; then ready, row-hit, oldest. (Ramulator's own FRFCFS is "ready, then
++oldest", which closes rows that still have queued hits.)
++
++Known differences that remain:
++  - Ramulator keeps reads and writes in separate 64-entry buffers and drains
++    writes in batches (watermarks); GPGPU-Sim has one shared queue.
++  - GPGPU-Sim hands one request per bank to the bank and schedules one bank
++    per cycle; Ramulator picks the best command over all banks each cycle.
++  - tCK is rounded to whole picoseconds (286 ps instead of 285.71 ps, 0.1%).
++  - GPGPU-Sim's tRTPL (read to precharge in the same bank group, 4 cycles) has
++    no Ramulator equivalent; tRTP (same bank, 4 cycles) is modelled.
++"""
++import os
++import sys
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++import ramulator  # noqa: E402
++from accelsim_common import apply_overrides, build_system, core_cycles_to_ns, summary  # noqa: E402
++
++# ============================ EDIT HERE ======================================
++P = {
++    "CHANNELS": 16,               # -gpgpu_n_mem 16 (must equal it)
++    "DRAM_CLOCK_MHZ": 3500.0,     # DRAM value of -gpgpu_clock_domains
++    # -gpgpu_dram_timing_opt "nbk=16:CCD=4:RRD=10:RCD=20:RAS=50:RP=20:RC=62:
++    #                         CL=20:WL=8:CDLR=9:WR=20:nbkgrp=4:CCDL=4:RTPL=4"
++    "CCD": 4, "RRD": 10, "RCD": 20, "RAS": 50, "RP": 20, "RC": 62,
++    "CL": 20, "WL": 8, "CDLR": 9, "WR": 20, "CCDL": 4,
++    "BURST_LENGTH": 16,           # -gpgpu_dram_burst_length 16
++    "DATA_COMMAND_FREQ_RATIO": 4,  # -dram_data_command_freq_ratio 4
++    "READ_BUFFER": 64,            # -gpgpu_frfcfs_dram_sched_queue_size 64
++    "WRITE_BUFFER": 64,
++    "FIXED_LATENCY_NS": core_cycles_to_ns(100),  # -dram_latency 100 core cycles (52.49 ns @ 1905 MHz)
++    "REFRESH": "none",            # GPGPU-Sim models no refresh
++    "SCHEDULER": "GPGPUSimFRFCFS",  # -gpgpu_dram_scheduler 1: FR-FCFS, row hits first
++    "ROW_POLICY": "open",         # GPGPU-Sim keeps rows open
++    "ADDR_MAPPER": "PassThroughAddrMapper",  # use GPGPU-Sim's bank/row/column decode
++}
++# =============================================================================
++P = apply_overrides(P)
++
++tck_ps = int(round(1e6 / P["DRAM_CLOCK_MHZ"]))
++burst = P["BURST_LENGTH"] // P["DATA_COMMAND_FREQ_RATIO"]  # data cycles per 32B burst
++T = {
++    # same derivations as memory_config::init
++    "rate": int(P["BURST_LENGTH"] / burst * P["DRAM_CLOCK_MHZ"]),  # Mbps per pin
++    "tCK_ps": tck_ps,
++    "nBL": burst,
++    "nCL": P["CL"],
++    "nCWL": P["WL"],
++    "nRCDRD": P["RCD"],
++    "nRCDWR": P["RCD"] - (P["WL"] + 1),            # tRCDWR
++    "nRP": P["RP"],
++    "nRAS": P["RAS"],
++    "nRC": P["RC"],
++    "nWR": P["WR"],          # WR->PRE = WL + burst + WR  (= tWTP)
++    "nRTP": burst,           # RD->PRE = BL/ratio        (RTPc)
++    "nCCDS": P["CCD"],
++    "nCCDL": P["CCDL"],
++    "nRRDS": P["RRD"],
++    "nRRDL": P["RRD"],
++    "nWTRS": P["CDLR"],      # WR->RD = WL + burst + CDLR (= tWTR)
++    "nWTRL": P["CDLR"],
++    "nRTW": P["CL"] + burst + 2 - P["WL"],          # tRTW
++    "nFAW": 1,               # GPGPU-Sim has no four-activate window
++    "nPPD": 1,               # nor a precharge-to-precharge delay
++}
++T.update(P["TIMING_CYCLES"])
++T.update({k: max(1, round(v * 1000 / tck_ps)) for k, v in P["TIMING_NS"].items()})
++
++
++def make_dram():
++    # 16 banks (4 groups x 4), 16384 rows, 2 KB rows: same as nbk=16, nbkgrp=4
++    return ramulator.dram.GDDR6(org_preset="GDDR6_8Gb_x16",
++                                timing_preset="GDDR6_14000_1350mV_double", **T)
++
++
++sim = build_system(P, make_dram, ramulator.controller.GenericDDR)
++SUMMARY = "GPGPU-Sim built-in DRAM model in Ramulator: " + summary(P, None, T, 16, tck_ps)
+diff --git a/configs/accelsim/hbm3_rtx2060s.py b/configs/accelsim/hbm3_rtx2060s.py
+new file mode 100644
+index 0000000..ef2d56d
+--- /dev/null
++++ b/configs/accelsim/hbm3_rtx2060s.py
+@@ -0,0 +1,69 @@
++"""Ramulator config: HBM3 for the RTX 2060 Super (hypothetical: the real card has GDDR6).
++
++Each of the GPU's 16 memory channels becomes one HBM3 channel (64-bit = 2
++pseudo-channels x 32-bit; 2 SIDs x 4 bank groups x 4 banks per pseudo-channel;
++1 GB), i.e. exactly one HBM3 stack of 16 GB. Timings: Ramulator's
++HBM3_6400Mbps preset (labelled a "guesstimate" by Ramulator).
++
++Bandwidth knob: DATA_RATE_MBPS (same rule as the GDDR6 config: the clock
++changes, timings keep their value in nanoseconds):
++    peak bandwidth = CHANNELS x 64 bit x DATA_RATE_MBPS / 8
++    6400 Mbps -> 819 GB/s, 12800 -> 1638 GB/s
++
++DRAM power: Ramulator's Ayna HBM power model (DRAM_POWER_MODEL="ayna"); the run's
++summary then shows AccelWattch (GPU chip) + Ayna (DRAM) = combined power.
++
++Refresh: all-bank refresh (REFab, every 3.9 us per pseudo-channel) by default.
++Ayna has no energy model for per-bank refresh (REFpb), and Ramulator's HBM3
++controller stops scheduling reads/writes on the whole channel while a per-bank
++refresh waits (HBMControllerBase::try_issue_slot), so hbm_perbank both misses
++refresh energy and overstates refresh time.
++"""
++import os
++import sys
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++import ramulator  # noqa: E402
++from accelsim_common import (apply_overrides, build_system, core_cycles_to_ns,  # noqa: E402
++                             ns_to_cycles, summary, timings_at_rate)
++
++# ============================ EDIT HERE ======================================
++P = {
++    "CHANNELS": 16,               # must equal -gpgpu_n_mem of the GPU config
++    "DATA_RATE_MBPS": 6400,       # per-pin data rate (bandwidth knob)
++    "READ_BUFFER": 64,
++    "WRITE_BUFFER": 64,
++    "FIXED_LATENCY_NS": core_cycles_to_ns(100),  # memory-controller front end: 100 GPU core
++                                  # cycles at the GPU's core clock (52.49 ns @ 1905 MHz)
++    "REFRESH": "allbank",         # allbank (REFab, modelled by Ayna) | hbm_perbank (REFpb) | none
++    "SCHEDULER": "GPGPUSimFRFCFS",  # GPGPUSimFRFCFS (row hits first, as Accel-Sim) | FRFCFS | FRFCFSRowHit
++    "ROW_POLICY": "open",
++    "ADDR_MAPPER": "GPUBgCoBaRo",
++    "DRAM_POWER_MODEL": "ayna",   # ayna (HBM DRAM power from Ramulator) | none
++    "AYNA": {},                   # Ayna options, e.g. {"dq_rate": 0.5} (data toggle rates)
++    "TIMING_CYCLES": {},          # clock cycles (CK)
++    "TIMING_NS": {},              # nanoseconds
++    # Organization of one channel, on top of ORG_PRESET (powers of two), e.g.
++    #   {"pseudochannel": 4}  {"bank": 8}  {"bankgroup": 8}  {"row": 1 << 15}
++    #   {"stack_height": 16, "sid": 4, "die_density": 32768, "channel_density": 32768}
++    "ORG": {},
++}
++ORG_PRESET = "HBM3_16Gb_8hi"
++TIMING_PRESET = "HBM3_6400Mbps"
++CLOCK_TIMINGS = {"nBL", "nCCDS", "nCCDR", "nPPD"}
++# =============================================================================
++P = apply_overrides(P)
++
++T = timings_at_rate(ramulator.dram.HBM3, ORG_PRESET, TIMING_PRESET,
++                    P["DATA_RATE_MBPS"], CLOCK_TIMINGS, P["ORG"])
++T.update(P["TIMING_CYCLES"])
++T.update({k: ns_to_cycles(v, T["tCK_ps"]) for k, v in P["TIMING_NS"].items()})
++
++
++def make_dram():
++    return ramulator.dram.HBM3(org_preset=ORG_PRESET, timing_preset=TIMING_PRESET, **P["ORG"], **T)
++
++
++ORG, _ = make_dram().resolve()
++sim = build_system(P, make_dram, ramulator.controller.HBM34)
++SUMMARY = "HBM3: " + summary(P, ORG, T, 64, T["tCK_ps"])
+diff --git a/python/ramulator/addr_mapper/__init__.py b/python/ramulator/addr_mapper/__init__.py
+index af11f65..bb9dc74 100644
+--- a/python/ramulator/addr_mapper/__init__.py
++++ b/python/ramulator/addr_mapper/__init__.py
+@@ -5,9 +5,10 @@
+ # Regenerate:   python -m ramulator codegen
+ ###############################################################################
+ from .ch_ra_ba_ro_co import ChRaBaRoCo
++from .gpu_bg_co_ba_ro import GPUBgCoBaRo
+ from .mop4_clxor import MOP4CLXOR
+ from .pass_through_addr_mapper import PassThroughAddrMapper
+ from .rit_addr_mapper import RITAddrMapper
+ from .ro_ba_ra_co_ch import RoBaRaCoCh
+ 
+-__all__ = ['ChRaBaRoCo', 'MOP4CLXOR', 'PassThroughAddrMapper', 'RITAddrMapper', 'RoBaRaCoCh']
++__all__ = ['ChRaBaRoCo', 'GPUBgCoBaRo', 'MOP4CLXOR', 'PassThroughAddrMapper', 'RITAddrMapper', 'RoBaRaCoCh']
+diff --git a/python/ramulator/addr_mapper/gpu_bg_co_ba_ro.py b/python/ramulator/addr_mapper/gpu_bg_co_ba_ro.py
+new file mode 100644
+index 0000000..4135105
+--- /dev/null
++++ b/python/ramulator/addr_mapper/gpu_bg_co_ba_ro.py
+@@ -0,0 +1,13 @@
++###############################################################################
++# AUTO-GENERATED FILE — DO NOT EDIT
++#
++# Generated by: python -m ramulator codegen
++# Source:       src/ramulator/gpgpusim/gpu_bg_co_ba_ro.cpp
++#
++# Regenerate:   python -m ramulator codegen
++###############################################################################
++from ramulator.components import Component
++
++
++class GPUBgCoBaRo(Component):
++    impl = "GPUBgCoBaRo"
+diff --git a/python/ramulator/controller_plugin/__init__.py b/python/ramulator/controller_plugin/__init__.py
+index af8bcfd..0fc1442 100644
+--- a/python/ramulator/controller_plugin/__init__.py
++++ b/python/ramulator/controller_plugin/__init__.py
+@@ -9,6 +9,7 @@ from .ayna import Ayna
+ from .bin_trace_recorder import BinTraceRecorder
+ from .cmd_trace_recorder import CmdTraceRecorder
+ from .command_counter import CommandCounter
++from .gpgpu_sim_counter import GPGPUSimCounter
+ from .graphene import Graphene
+ from .hydra import Hydra
+ from .hynix_trr import HynixTRR
+@@ -22,4 +23,4 @@ from .rrs import RRS
+ from .samsung_trr import SamsungTRR
+ from .t_wi_ce_ideal import TWiCeIdeal
+ 
+-__all__ = ['AQUA', 'Ayna', 'BinTraceRecorder', 'CmdTraceRecorder', 'CommandCounter', 'Graphene', 'Hydra', 'HynixTRR', 'IdealTRR', 'IssuedCommandValidationHook', 'LiveTraceStreamer', 'OracleRH', 'PARA', 'RFMManager', 'RRS', 'SamsungTRR', 'TWiCeIdeal']
++__all__ = ['AQUA', 'Ayna', 'BinTraceRecorder', 'CmdTraceRecorder', 'CommandCounter', 'GPGPUSimCounter', 'Graphene', 'Hydra', 'HynixTRR', 'IdealTRR', 'IssuedCommandValidationHook', 'LiveTraceStreamer', 'OracleRH', 'PARA', 'RFMManager', 'RRS', 'SamsungTRR', 'TWiCeIdeal']
+diff --git a/python/ramulator/controller_plugin/gpgpu_sim_counter.py b/python/ramulator/controller_plugin/gpgpu_sim_counter.py
+new file mode 100644
+index 0000000..de9292d
+--- /dev/null
++++ b/python/ramulator/controller_plugin/gpgpu_sim_counter.py
+@@ -0,0 +1,13 @@
++###############################################################################
++# AUTO-GENERATED FILE — DO NOT EDIT
++#
++# Generated by: python -m ramulator codegen
++# Source:       src/ramulator/gpgpusim/gpgpusim_counter.cpp
++#
++# Regenerate:   python -m ramulator codegen
++###############################################################################
++from ramulator.components import Component
++
++
++class GPGPUSimCounter(Component):
++    impl = "GPGPUSimCounter"
+diff --git a/python/ramulator/frontend/__init__.py b/python/ramulator/frontend/__init__.py
+index e8d7ba2..7478d86 100644
+--- a/python/ramulator/frontend/__init__.py
++++ b/python/ramulator/frontend/__init__.py
+@@ -6,9 +6,10 @@
+ ###############################################################################
+ from .bho3 import BHO3
+ from .external import External
++from .gpgpu_sim import GPGPUSim
+ from .latency_throughput_trace import LatencyThroughputTrace
+ from .load_store_trace import LoadStoreTrace
+ from .read_write_trace import ReadWriteTrace
+ from .simple_o3 import SimpleO3
+ 
+-__all__ = ['BHO3', 'External', 'LatencyThroughputTrace', 'LoadStoreTrace', 'ReadWriteTrace', 'SimpleO3']
++__all__ = ['BHO3', 'External', 'GPGPUSim', 'LatencyThroughputTrace', 'LoadStoreTrace', 'ReadWriteTrace', 'SimpleO3']
+diff --git a/python/ramulator/frontend/gpgpu_sim.py b/python/ramulator/frontend/gpgpu_sim.py
+new file mode 100644
+index 0000000..0e40398
+--- /dev/null
++++ b/python/ramulator/frontend/gpgpu_sim.py
+@@ -0,0 +1,16 @@
++###############################################################################
++# AUTO-GENERATED FILE — DO NOT EDIT
++#
++# Generated by: python -m ramulator codegen
++# Source:       src/ramulator/gpgpusim/gpgpusim_frontend.cpp
++#
++# Regenerate:   python -m ramulator codegen
++###############################################################################
++from ramulator.components import Component
++from ramulator.param import Param
++
++
++class GPGPUSim(Component):
++    impl = "GPGPUSim"
++    clock_ratio = Param(int, default=1, cpp_type="unsigned int")
++    fixed_latency_ns = Param(float, default=0.0)
+diff --git a/python/ramulator/scheduler/__init__.py b/python/ramulator/scheduler/__init__.py
+index fa23edd..5f2a8ae 100644
+--- a/python/ramulator/scheduler/__init__.py
++++ b/python/ramulator/scheduler/__init__.py
+@@ -6,5 +6,6 @@
+ ###############################################################################
+ from .frfcfs import FRFCFS
+ from .frfcfs_row_hit import FRFCFSRowHit
++from .gpgpu_sim_frfcfs import GPGPUSimFRFCFS
+ 
+-__all__ = ['FRFCFS', 'FRFCFSRowHit']
++__all__ = ['FRFCFS', 'FRFCFSRowHit', 'GPGPUSimFRFCFS']
+diff --git a/python/ramulator/scheduler/gpgpu_sim_frfcfs.py b/python/ramulator/scheduler/gpgpu_sim_frfcfs.py
+new file mode 100644
+index 0000000..0395f34
+--- /dev/null
++++ b/python/ramulator/scheduler/gpgpu_sim_frfcfs.py
+@@ -0,0 +1,13 @@
++###############################################################################
++# AUTO-GENERATED FILE — DO NOT EDIT
++#
++# Generated by: python -m ramulator codegen
++# Source:       src/ramulator/gpgpusim/gpgpusim_frfcfs.cpp
++#
++# Regenerate:   python -m ramulator codegen
++###############################################################################
++from ramulator.components import Component
++
++
++class GPGPUSimFRFCFS(Component):
++    impl = "GPGPUSimFRFCFS"
+diff --git a/src/ramulator/CMakeLists.txt b/src/ramulator/CMakeLists.txt
+index 1113949..f667a96 100644
+--- a/src/ramulator/CMakeLists.txt
++++ b/src/ramulator/CMakeLists.txt
+@@ -5,3 +5,4 @@ add_subdirectory(memory_system)
+ add_subdirectory(dram)
+ add_subdirectory(controller)
+ add_subdirectory(power)
++add_subdirectory(gpgpusim)
+diff --git a/src/ramulator/controller/controller_base.h b/src/ramulator/controller/controller_base.h
+index 4240b8c..d17d1ef 100644
+--- a/src/ramulator/controller/controller_base.h
++++ b/src/ramulator/controller/controller_base.h
+@@ -44,6 +44,10 @@ class ControllerBase : public IController, public Implementation {
+   void finalize() override;
+   void reset_stats() override;
+ 
++  // Request buffer capacities (used by external simulators for flow control)
++  int get_read_buffer_size() const { return m_read_buffer_size; }
++  int get_write_buffer_size() const { return m_write_buffer_size; }
++
+  protected:
+   ControllerBase(const ConfigNode& config, Implementation* parent)
+       : Implementation(config, "controller", "ControllerBase", parent) {
+diff --git a/src/ramulator/dram/impl/DDR3.cpp b/src/ramulator/dram/impl/DDR3.cpp
+index 2ebab2c..dd79fd6 100644
+--- a/src/ramulator/dram/impl/DDR3.cpp
++++ b/src/ramulator/dram/impl/DDR3.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen DDR3
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -14,8 +17,6 @@
+ #include "ramulator/dram/commands/REFab.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -32,30 +33,14 @@ class DDR3 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCD,
+-      nRRD,
+-      nWTR,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nCS,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCD, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCD, nRRD, nWTR, nFAW, nRFC, nREFI, nCS, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<DDR3>, Cmd::PREpb<DDR3>, Cmd::PREab<DDR3>, Cmd::RD<DDR3>, Cmd::WR<DDR3>,
+-                                  Cmd::RDA<DDR3>, Cmd::WRA<DDR3>, Cmd::REFab<DDR3> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<DDR3>, Cmd::PREpb<DDR3>, Cmd::PREab<DDR3>, Cmd::RD<DDR3>, Cmd::WR<DDR3>, Cmd::RDA<DDR3>,
++      Cmd::WRA<DDR3>, Cmd::REFab<DDR3>
++  >;
+ 
+   DDR3(const ConfigNode& config) {
+     // Counts
+@@ -68,22 +53,23 @@ class DDR3 : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "Rank", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCD", "nRRD", "nWTR",
+-               "nFAW", "nRFC", "nREFI", "nCS", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCD", "nRRD", "nWTR", "nFAW",
++        "nRFC", "nREFI", "nCS", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 8;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -95,7 +81,7 @@ class DDR3 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_ddr3 =
+-    DRAMSpec::register_standard("DDR3", [](const ConfigNode& config) { return std::make_unique<DDR3>(config); });
++static bool _dram_ddr3 = DRAMSpec::register_standard(
++    "DDR3", [](const ConfigNode& config) { return std::make_unique<DDR3>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/DDR4.cpp b/src/ramulator/dram/impl/DDR4.cpp
+index 68bc06f..b97749f 100644
+--- a/src/ramulator/dram/impl/DDR4.cpp
++++ b/src/ramulator/dram/impl/DDR4.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen DDR4
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -14,8 +17,6 @@
+ #include "ramulator/dram/commands/REFab.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -32,33 +33,15 @@ class DDR4 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nCS,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCD, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCDS, nCCDL, nRRDS, nRRDL, nWTRS, nWTRL, nFAW, nRFC,
++    nREFI, nCS, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<DDR4>, Cmd::PREpb<DDR4>, Cmd::PREab<DDR4>, Cmd::RD<DDR4>, Cmd::WR<DDR4>,
+-                                  Cmd::RDA<DDR4>, Cmd::WRA<DDR4>, Cmd::REFab<DDR4> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<DDR4>, Cmd::PREpb<DDR4>, Cmd::PREab<DDR4>, Cmd::RD<DDR4>, Cmd::WR<DDR4>, Cmd::RDA<DDR4>,
++      Cmd::WRA<DDR4>, Cmd::REFab<DDR4>
++  >;
+ 
+   DDR4(const ConfigNode& config) {
+     // Counts
+@@ -71,23 +54,24 @@ class DDR4 : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",  "nBL",   "nCL",   "nRCD",  "nRP",   "nRAS", "nRC",  "nWR",   "nRTP", "nCWL",  "nCCDS",
+-               "nCCDL", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS",  "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCDS", "nCCDL", "nRRDS",
++        "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 8;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -99,7 +83,7 @@ class DDR4 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_ddr4 =
+-    DRAMSpec::register_standard("DDR4", [](const ConfigNode& config) { return std::make_unique<DDR4>(config); });
++static bool _dram_ddr4 = DRAMSpec::register_standard(
++    "DDR4", [](const ConfigNode& config) { return std::make_unique<DDR4>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/DDR4_VRR.cpp b/src/ramulator/dram/impl/DDR4_VRR.cpp
+index 842b820..ee2b255 100644
+--- a/src/ramulator/dram/impl/DDR4_VRR.cpp
++++ b/src/ramulator/dram/impl/DDR4_VRR.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen DDR4_VRR
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -15,8 +18,6 @@
+ #include "ramulator/dram/commands/VRR.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -33,35 +34,15 @@ class DDR4_VRR : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nCS,
+-      tCK_ps,
+-      nVRR,
+-      COUNT
++    rate, nBL, nCL, nRCD, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCDS, nCCDL, nRRDS, nRRDL, nWTRS, nWTRL, nFAW, nRFC,
++    nREFI, nCS, tCK_ps, nVRR, COUNT
+     };
+   };
+ 
+-  using CommandImpls =
+-      std::tuple<Cmd::ACT<DDR4_VRR>, Cmd::PREpb<DDR4_VRR>, Cmd::PREab<DDR4_VRR>, Cmd::RD<DDR4_VRR>, Cmd::WR<DDR4_VRR>,
+-                 Cmd::RDA<DDR4_VRR>, Cmd::WRA<DDR4_VRR>, Cmd::REFab<DDR4_VRR>, Cmd::VRR<DDR4_VRR> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<DDR4_VRR>, Cmd::PREpb<DDR4_VRR>, Cmd::PREab<DDR4_VRR>, Cmd::RD<DDR4_VRR>, Cmd::WR<DDR4_VRR>,
++      Cmd::RDA<DDR4_VRR>, Cmd::WRA<DDR4_VRR>, Cmd::REFab<DDR4_VRR>, Cmd::VRR<DDR4_VRR>
++  >;
+ 
+   DDR4_VRR(const ConfigNode& config) {
+     // Counts
+@@ -74,23 +55,24 @@ class DDR4_VRR : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "VRR"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",  "nBL",   "nCL",   "nRCD",  "nRP",   "nRAS", "nRC",  "nWR",   "nRTP", "nCWL",   "nCCDS",
+-               "nCCDL", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS",  "tCK_ps", "nVRR"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCDS", "nCCDL", "nRRDS",
++        "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nREFI", "nCS", "tCK_ps", "nVRR"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 8;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+diff --git a/src/ramulator/dram/impl/DDR5.cpp b/src/ramulator/dram/impl/DDR5.cpp
+index 6f92c71..ae67feb 100644
+--- a/src/ramulator/dram/impl/DDR5.cpp
++++ b/src/ramulator/dram/impl/DDR5.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen DDR5
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -18,8 +21,6 @@
+ #include "ramulator/dram/commands/RFMsb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -36,45 +37,15 @@ class DDR5 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nPPD,
+-      nCCDS,
+-      nCCDL,
+-      nCCDS_WR,
+-      nCCDL_WR,
+-      nCCDM,
+-      nCCDM_WR,
+-      nWTRM,
+-      nRTW,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nRFCsb,
+-      nCS,
+-      tCK_ps,
+-      nRFM,
+-      nRFMsb,
+-      nREFSBRD,
+-      COUNT
++    rate, nBL, nCL, nRCD, nRP, nRAS, nRC, nWR, nRTP, nCWL, nPPD, nCCDS, nCCDL, nCCDS_WR, nCCDL_WR, nCCDM, nCCDM_WR,
++    nWTRM, nRTW, nRRDS, nRRDL, nWTRS, nWTRL, nFAW, nRFC, nREFI, nRFCsb, nCS, tCK_ps, nRFM, nRFMsb, nREFSBRD, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<DDR5>, Cmd::PREpb<DDR5>, Cmd::PREab<DDR5>, Cmd::RD<DDR5>, Cmd::WR<DDR5>,
+-                                  Cmd::RDA<DDR5>, Cmd::WRA<DDR5>, Cmd::REFab<DDR5>, Cmd::PREsb<DDR5>, Cmd::REFsb<DDR5>,
+-                                  Cmd::RFMab<DDR5>, Cmd::RFMsb<DDR5> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<DDR5>, Cmd::PREpb<DDR5>, Cmd::PREab<DDR5>, Cmd::RD<DDR5>, Cmd::WR<DDR5>, Cmd::RDA<DDR5>,
++      Cmd::WRA<DDR5>, Cmd::REFab<DDR5>, Cmd::PREsb<DDR5>, Cmd::REFsb<DDR5>, Cmd::RFMab<DDR5>, Cmd::RFMsb<DDR5>
++  >;
+ 
+   DDR5(const ConfigNode& config) {
+     // Counts
+@@ -85,28 +56,27 @@ class DDR5 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "PREsb", "REFsb", "RFMab", "RFMsb"});
++    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "PREsb", "REFsb", "RFMab", "RFMsb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(
+-        timings, timing_names,
+-        {"rate",  "nBL",   "nCL",      "nRCD",     "nRP",    "nRAS",     "nRC",    "nWR",  "nRTP",   "nCWL",    "nPPD",
+-         "nCCDS", "nCCDL", "nCCDS_WR", "nCCDL_WR", "nCCDM",  "nCCDM_WR", "nWTRM",  "nRTW", "nRRDS",  "nRRDL",   "nWTRS",
+-         "nWTRL", "nFAW",  "nRFC",     "nREFI",    "nRFCsb", "nCS",      "tCK_ps", "nRFM", "nRFMsb", "nREFSBRD"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nPPD", "nCCDS", "nCCDL",
++        "nCCDS_WR", "nCCDL_WR", "nCCDM", "nCCDM_WR", "nWTRM", "nRTW", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW",
++        "nRFC", "nREFI", "nRFCsb", "nCS", "tCK_ps", "nRFM", "nRFMsb", "nREFSBRD"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 16;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -118,7 +88,7 @@ class DDR5 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_ddr5 =
+-    DRAMSpec::register_standard("DDR5", [](const ConfigNode& config) { return std::make_unique<DDR5>(config); });
++static bool _dram_ddr5 = DRAMSpec::register_standard(
++    "DDR5", [](const ConfigNode& config) { return std::make_unique<DDR5>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/DDR5_VRR.cpp b/src/ramulator/dram/impl/DDR5_VRR.cpp
+index 2a4cc66..2d8bc98 100644
+--- a/src/ramulator/dram/impl/DDR5_VRR.cpp
++++ b/src/ramulator/dram/impl/DDR5_VRR.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen DDR5_VRR
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -19,8 +22,6 @@
+ #include "ramulator/dram/commands/VRR.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -37,47 +38,17 @@ class DDR5_VRR : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nPPD,
+-      nCCDS,
+-      nCCDL,
+-      nCCDS_WR,
+-      nCCDL_WR,
+-      nCCDM,
+-      nCCDM_WR,
+-      nWTRM,
+-      nRTW,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nRFCsb,
+-      nCS,
+-      tCK_ps,
+-      nRFM,
+-      nRFMsb,
+-      nREFSBRD,
+-      nVRR,
+-      COUNT
++    rate, nBL, nCL, nRCD, nRP, nRAS, nRC, nWR, nRTP, nCWL, nPPD, nCCDS, nCCDL, nCCDS_WR, nCCDL_WR, nCCDM, nCCDM_WR,
++    nWTRM, nRTW, nRRDS, nRRDL, nWTRS, nWTRL, nFAW, nRFC, nREFI, nRFCsb, nCS, tCK_ps, nRFM, nRFMsb, nREFSBRD, nVRR,
++    COUNT
+     };
+   };
+ 
+-  using CommandImpls =
+-      std::tuple<Cmd::ACT<DDR5_VRR>, Cmd::PREpb<DDR5_VRR>, Cmd::PREab<DDR5_VRR>, Cmd::RD<DDR5_VRR>, Cmd::WR<DDR5_VRR>,
+-                 Cmd::RDA<DDR5_VRR>, Cmd::WRA<DDR5_VRR>, Cmd::REFab<DDR5_VRR>, Cmd::PREsb<DDR5_VRR>,
+-                 Cmd::REFsb<DDR5_VRR>, Cmd::RFMab<DDR5_VRR>, Cmd::RFMsb<DDR5_VRR>, Cmd::VRR<DDR5_VRR> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<DDR5_VRR>, Cmd::PREpb<DDR5_VRR>, Cmd::PREab<DDR5_VRR>, Cmd::RD<DDR5_VRR>, Cmd::WR<DDR5_VRR>,
++      Cmd::RDA<DDR5_VRR>, Cmd::WRA<DDR5_VRR>, Cmd::REFab<DDR5_VRR>, Cmd::PREsb<DDR5_VRR>, Cmd::REFsb<DDR5_VRR>,
++      Cmd::RFMab<DDR5_VRR>, Cmd::RFMsb<DDR5_VRR>, Cmd::VRR<DDR5_VRR>
++  >;
+ 
+   DDR5_VRR(const ConfigNode& config) {
+     // Counts
+@@ -88,28 +59,27 @@ class DDR5_VRR : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "PREsb", "REFsb", "RFMab", "RFMsb", "VRR"});
++    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "PREsb", "REFsb", "RFMab", "RFMsb", "VRR"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate", "nBL",    "nCL",   "nRCD",   "nRP",      "nRAS",     "nRC",   "nWR",      "nRTP",
+-               "nCWL", "nPPD",   "nCCDS", "nCCDL",  "nCCDS_WR", "nCCDL_WR", "nCCDM", "nCCDM_WR", "nWTRM",
+-               "nRTW", "nRRDS",  "nRRDL", "nWTRS",  "nWTRL",    "nFAW",     "nRFC",  "nREFI",    "nRFCsb",
+-               "nCS",  "tCK_ps", "nRFM",  "nRFMsb", "nREFSBRD", "nVRR"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCD", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nPPD", "nCCDS", "nCCDL",
++        "nCCDS_WR", "nCCDL_WR", "nCCDM", "nCCDM_WR", "nWTRM", "nRTW", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW",
++        "nRFC", "nREFI", "nRFCsb", "nCS", "tCK_ps", "nRFM", "nRFMsb", "nREFSBRD", "nVRR"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 16;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+diff --git a/src/ramulator/dram/impl/GDDR6.cpp b/src/ramulator/dram/impl/GDDR6.cpp
+index e2d9276..f48d498 100644
+--- a/src/ramulator/dram/impl/GDDR6.cpp
++++ b/src/ramulator/dram/impl/GDDR6.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen GDDR6
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -15,8 +18,6 @@
+ #include "ramulator/dram/commands/REFpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -33,38 +34,15 @@ class GDDR6 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nRTW,
+-      nFAW,
+-      nRFCpb,
+-      nRREFD,
+-      nREFI,
+-      nREFIpb,
+-      tCK_ps,
+-      nRFCab,
+-      nPPD,
+-      COUNT
++    rate, nBL, nCL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCDS, nCCDL, nRRDS, nRRDL, nWTRS, nWTRL, nRTW,
++    nFAW, nRFCpb, nRREFD, nREFI, nREFIpb, tCK_ps, nRFCab, nPPD, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<GDDR6>, Cmd::PREab<GDDR6>, Cmd::PREpb<GDDR6>, Cmd::RD<GDDR6>, Cmd::WR<GDDR6>,
+-                                  Cmd::RDA<GDDR6>, Cmd::WRA<GDDR6>, Cmd::REFab<GDDR6>, Cmd::REFpb<GDDR6> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<GDDR6>, Cmd::PREab<GDDR6>, Cmd::PREpb<GDDR6>, Cmd::RD<GDDR6>, Cmd::WR<GDDR6>, Cmd::RDA<GDDR6>,
++      Cmd::WRA<GDDR6>, Cmd::REFab<GDDR6>, Cmd::REFpb<GDDR6>
++  >;
+ 
+   GDDR6(const ConfigNode& config) {
+     // Counts
+@@ -77,23 +55,24 @@ class GDDR6 : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "BankGroup", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREab", "PREpb", "RD", "WR", "RDA", "WRA", "REFab", "REFpb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate", "nBL",    "nCL",    "nRCDRD", "nRCDWR",  "nRP",    "nRAS",   "nRC",   "nWR",
+-               "nRTP", "nCWL",   "nCCDS",  "nCCDL",  "nRRDS",   "nRRDL",  "nWTRS",  "nWTRL", "nRTW",
+-               "nFAW", "nRFCpb", "nRREFD", "nREFI",  "nREFIpb", "tCK_ps", "nRFCab", "nPPD"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCDS", "nCCDL",
++        "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nRTW", "nFAW", "nRFCpb", "nRREFD", "nREFI", "nREFIpb", "tCK_ps",
++        "nRFCab", "nPPD"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 16;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -105,7 +84,7 @@ class GDDR6 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_gddr6 =
+-    DRAMSpec::register_standard("GDDR6", [](const ConfigNode& config) { return std::make_unique<GDDR6>(config); });
++static bool _dram_gddr6 = DRAMSpec::register_standard(
++    "GDDR6", [](const ConfigNode& config) { return std::make_unique<GDDR6>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/GDDR7.cpp b/src/ramulator/dram/impl/GDDR7.cpp
+index 096d95a..c9c2340 100644
+--- a/src/ramulator/dram/impl/GDDR7.cpp
++++ b/src/ramulator/dram/impl/GDDR7.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen GDDR7
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -19,8 +22,6 @@
+ #include "ramulator/dram/commands/RFMpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -37,50 +38,17 @@ class GDDR7 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nRL,
+-      nWL,
+-      nDQERL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nRRD,
+-      nRREFD,
+-      nRPD,
+-      nRTPSB,
+-      nPPD,
+-      nWR,
+-      nCCD,
+-      nCCDSB,
+-      nWTR,
+-      nWTRSB,
+-      nRTW,
+-      nREFI,
+-      nREFIpb,
+-      nRFCab,
+-      nRFCpb,
+-      nRDREFab,
+-      nRFMab,
+-      nRFMpb,
+-      nRCKSTRT2RD,
+-      nRD2RCKSTOP,
+-      nRCKSP2ST,
+-      nRCKST2SP,
+-      nRCKSTOP_LAT,
+-      nRCKEN,
+-      nRCK_LS,
+-      nRCKPST,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nRL, nWL, nDQERL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nRRD, nRREFD, nRPD, nRTPSB, nPPD, nWR, nCCD, nCCDSB,
++    nWTR, nWTRSB, nRTW, nREFI, nREFIpb, nRFCab, nRFCpb, nRDREFab, nRFMab, nRFMpb, nRCKSTRT2RD, nRD2RCKSTOP,
++    nRCKSP2ST, nRCKST2SP, nRCKSTOP_LAT, nRCKEN, nRCK_LS, nRCKPST, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<GDDR7>, Cmd::PREpb<GDDR7>, Cmd::PREab<GDDR7>, Cmd::RD<GDDR7>, Cmd::WR<GDDR7>,
+-                                  Cmd::RDA<GDDR7>, Cmd::WRA<GDDR7>, Cmd::REFab<GDDR7>, Cmd::REFpb<GDDR7>,
+-                                  Cmd::RFMab<GDDR7>, Cmd::RFMpb<GDDR7>, Cmd::RCKSTRT<GDDR7>, Cmd::RCKSTOP<GDDR7> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<GDDR7>, Cmd::PREpb<GDDR7>, Cmd::PREab<GDDR7>, Cmd::RD<GDDR7>, Cmd::WR<GDDR7>, Cmd::RDA<GDDR7>,
++      Cmd::WRA<GDDR7>, Cmd::REFab<GDDR7>, Cmd::REFpb<GDDR7>, Cmd::RFMab<GDDR7>, Cmd::RFMpb<GDDR7>,
++      Cmd::RCKSTRT<GDDR7>, Cmd::RCKSTOP<GDDR7>
++  >;
+ 
+   GDDR7(const ConfigNode& config) {
+     // Counts
+@@ -91,28 +59,26 @@ class GDDR7 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "Bank", "Row", "Column"});
+-    set_names(
+-        commands, command_names,
+-        {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "RCKSTRT", "RCKSTOP"});
++    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "RCKSTRT", "RCKSTOP"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",         "nBL",      "nRL",     "nWL",     "nDQERL",      "nRCDRD",      "nRCDWR",    "nRP",
+-               "nRAS",         "nRC",      "nRRD",    "nRREFD",  "nRPD",        "nRTPSB",      "nPPD",      "nWR",
+-               "nCCD",         "nCCDSB",   "nWTR",    "nWTRSB",  "nRTW",        "nREFI",       "nREFIpb",   "nRFCab",
+-               "nRFCpb",       "nRDREFab", "nRFMab",  "nRFMpb",  "nRCKSTRT2RD", "nRD2RCKSTOP", "nRCKSP2ST", "nRCKST2SP",
+-               "nRCKSTOP_LAT", "nRCKEN",   "nRCK_LS", "nRCKPST", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nRL", "nWL", "nDQERL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nRRD", "nRREFD", "nRPD",
++        "nRTPSB", "nPPD", "nWR", "nCCD", "nCCDSB", "nWTR", "nWTRSB", "nRTW", "nREFI", "nREFIpb", "nRFCab", "nRFCpb",
++        "nRDREFab", "nRFMab", "nRFMpb", "nRCKSTRT2RD", "nRD2RCKSTOP", "nRCKSP2ST", "nRCKST2SP", "nRCKSTOP_LAT",
++        "nRCKEN", "nRCK_LS", "nRCKPST", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 32;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -121,25 +87,25 @@ class GDDR7 : public DRAMSpec {
+     // Command handlers (function pointers, metadata, bank targets)
+     populate_commands(CommandImpls{}, *this);
+ 
+-    // Bus classification (for dual-bus controllers)
+-    command_meta[Command::ACT].is_row_command = true;
+-    command_meta[Command::PREpb].is_row_command = true;
+-    command_meta[Command::PREab].is_row_command = true;
+-    command_meta[Command::REFab].is_row_command = true;
+-    command_meta[Command::REFpb].is_row_command = true;
+-    command_meta[Command::RFMab].is_row_command = true;
+-    command_meta[Command::RFMpb].is_row_command = true;
+-    command_meta[Command::RD].is_column_command = true;
+-    command_meta[Command::WR].is_column_command = true;
+-    command_meta[Command::RDA].is_column_command = true;
+-    command_meta[Command::WRA].is_column_command = true;
+-    command_meta[Command::RCKSTRT].is_column_command = true;
+-    command_meta[Command::RCKSTOP].is_column_command = true;
++      // Bus classification (for dual-bus controllers)
++      command_meta[Command::ACT].is_row_command = true;
++      command_meta[Command::PREpb].is_row_command = true;
++      command_meta[Command::PREab].is_row_command = true;
++      command_meta[Command::REFab].is_row_command = true;
++      command_meta[Command::REFpb].is_row_command = true;
++      command_meta[Command::RFMab].is_row_command = true;
++      command_meta[Command::RFMpb].is_row_command = true;
++      command_meta[Command::RD].is_column_command = true;
++      command_meta[Command::WR].is_column_command = true;
++      command_meta[Command::RDA].is_column_command = true;
++      command_meta[Command::WRA].is_column_command = true;
++      command_meta[Command::RCKSTRT].is_column_command = true;
++      command_meta[Command::RCKSTOP].is_column_command = true;
+   }
+ };
+ 
+ // Self-registration
+-static bool _dram_gddr7 =
+-    DRAMSpec::register_standard("GDDR7", [](const ConfigNode& config) { return std::make_unique<GDDR7>(config); });
++static bool _dram_gddr7 = DRAMSpec::register_standard(
++    "GDDR7", [](const ConfigNode& config) { return std::make_unique<GDDR7>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/HBM1.cpp b/src/ramulator/dram/impl/HBM1.cpp
+index 7ddd130..9b2ae1c 100644
+--- a/src/ramulator/dram/impl/HBM1.cpp
++++ b/src/ramulator/dram/impl/HBM1.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen HBM1
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -15,8 +18,6 @@
+ #include "ramulator/dram/commands/REFpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -33,37 +34,15 @@ class HBM1 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTPL,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nRTW,
+-      nFAW,
+-      nRFC,
+-      nRFCpb,
+-      nRREFD,
+-      nREFI,
+-      nREFIpb,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nWR, nRTPL, nCWL, nCCDS, nCCDL, nRRDS, nRRDL, nWTRS, nWTRL, nRTW,
++    nFAW, nRFC, nRFCpb, nRREFD, nREFI, nREFIpb, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<HBM1>, Cmd::PREpb<HBM1>, Cmd::PREab<HBM1>, Cmd::RD<HBM1>, Cmd::WR<HBM1>,
+-                                  Cmd::RDA<HBM1>, Cmd::WRA<HBM1>, Cmd::REFab<HBM1>, Cmd::REFpb<HBM1> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<HBM1>, Cmd::PREpb<HBM1>, Cmd::PREab<HBM1>, Cmd::RD<HBM1>, Cmd::WR<HBM1>, Cmd::RDA<HBM1>,
++      Cmd::WRA<HBM1>, Cmd::REFab<HBM1>, Cmd::REFpb<HBM1>
++  >;
+ 
+   HBM1(const ConfigNode& config) {
+     // Counts
+@@ -76,23 +55,23 @@ class HBM1 : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "BankGroup", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",  "nBL",  "nCL",    "nRCDRD", "nRCDWR", "nRP",     "nRAS",  "nRC",   "nWR",
+-               "nRTPL", "nCWL", "nCCDS",  "nCCDL",  "nRRDS",  "nRRDL",   "nWTRS", "nWTRL", "nRTW",
+-               "nFAW",  "nRFC", "nRFCpb", "nRREFD", "nREFI",  "nREFIpb", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nWR", "nRTPL", "nCWL", "nCCDS", "nCCDL",
++        "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nRTW", "nFAW", "nRFC", "nRFCpb", "nRREFD", "nREFI", "nREFIpb", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 2;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -101,21 +80,21 @@ class HBM1 : public DRAMSpec {
+     // Command handlers (function pointers, metadata, bank targets)
+     populate_commands(CommandImpls{}, *this);
+ 
+-    // Bus classification (for dual-bus controllers)
+-    command_meta[Command::ACT].is_row_command = true;
+-    command_meta[Command::PREpb].is_row_command = true;
+-    command_meta[Command::PREab].is_row_command = true;
+-    command_meta[Command::REFab].is_row_command = true;
+-    command_meta[Command::REFpb].is_row_command = true;
+-    command_meta[Command::RD].is_column_command = true;
+-    command_meta[Command::WR].is_column_command = true;
+-    command_meta[Command::RDA].is_column_command = true;
+-    command_meta[Command::WRA].is_column_command = true;
++      // Bus classification (for dual-bus controllers)
++      command_meta[Command::ACT].is_row_command = true;
++      command_meta[Command::PREpb].is_row_command = true;
++      command_meta[Command::PREab].is_row_command = true;
++      command_meta[Command::REFab].is_row_command = true;
++      command_meta[Command::REFpb].is_row_command = true;
++      command_meta[Command::RD].is_column_command = true;
++      command_meta[Command::WR].is_column_command = true;
++      command_meta[Command::RDA].is_column_command = true;
++      command_meta[Command::WRA].is_column_command = true;
+   }
+ };
+ 
+ // Self-registration
+-static bool _dram_hbm1 =
+-    DRAMSpec::register_standard("HBM1", [](const ConfigNode& config) { return std::make_unique<HBM1>(config); });
++static bool _dram_hbm1 = DRAMSpec::register_standard(
++    "HBM1", [](const ConfigNode& config) { return std::make_unique<HBM1>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/HBM2.cpp b/src/ramulator/dram/impl/HBM2.cpp
+index 274d579..5c0ad29 100644
+--- a/src/ramulator/dram/impl/HBM2.cpp
++++ b/src/ramulator/dram/impl/HBM2.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen HBM2
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -15,8 +18,6 @@
+ #include "ramulator/dram/commands/REFpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -33,38 +34,15 @@ class HBM2 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTPL,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nCCDR,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nRTW,
+-      nFAW,
+-      nRFC,
+-      nRFCpb,
+-      nRREFD,
+-      nREFI,
+-      nREFIpb,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nWR, nRTPL, nCWL, nCCDS, nCCDL, nCCDR, nRRDS, nRRDL, nWTRS,
++    nWTRL, nRTW, nFAW, nRFC, nRFCpb, nRREFD, nREFI, nREFIpb, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT<HBM2>, Cmd::PREpb<HBM2>, Cmd::PREab<HBM2>, Cmd::RD<HBM2>, Cmd::WR<HBM2>,
+-                                  Cmd::RDA<HBM2>, Cmd::WRA<HBM2>, Cmd::REFab<HBM2>, Cmd::REFpb<HBM2> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<HBM2>, Cmd::PREpb<HBM2>, Cmd::PREab<HBM2>, Cmd::RD<HBM2>, Cmd::WR<HBM2>, Cmd::RDA<HBM2>,
++      Cmd::WRA<HBM2>, Cmd::REFab<HBM2>, Cmd::REFpb<HBM2>
++  >;
+ 
+   HBM2(const ConfigNode& config) {
+     // Counts
+@@ -77,25 +55,26 @@ class HBM2 : public DRAMSpec {
+     set_names(levels, level_names, {"Channel", "PseudoChannel", "Sid", "BankGroup", "Bank", "Row", "Column"});
+     set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",  "nBL",  "nCL",   "nRCDRD", "nRCDWR", "nRP",   "nRAS",    "nRC",   "nWR",
+-               "nRTPL", "nCWL", "nCCDS", "nCCDL",  "nCCDR",  "nRRDS", "nRRDL",   "nWTRS", "nWTRL",
+-               "nRTW",  "nFAW", "nRFC",  "nRFCpb", "nRREFD", "nREFI", "nREFIpb", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nWR", "nRTPL", "nCWL", "nCCDS", "nCCDL",
++        "nCCDR", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nRTW", "nFAW", "nRFC", "nRFCpb", "nRREFD", "nREFI", "nREFIpb",
++        "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 4;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // PseudoChannel
+-        State::N_A,     // Sid
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // PseudoChannel
++        State::N_A,           // Sid
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -104,21 +83,21 @@ class HBM2 : public DRAMSpec {
+     // Command handlers (function pointers, metadata, bank targets)
+     populate_commands(CommandImpls{}, *this);
+ 
+-    // Bus classification (for dual-bus controllers)
+-    command_meta[Command::ACT].is_row_command = true;
+-    command_meta[Command::PREpb].is_row_command = true;
+-    command_meta[Command::PREab].is_row_command = true;
+-    command_meta[Command::REFab].is_row_command = true;
+-    command_meta[Command::REFpb].is_row_command = true;
+-    command_meta[Command::RD].is_column_command = true;
+-    command_meta[Command::WR].is_column_command = true;
+-    command_meta[Command::RDA].is_column_command = true;
+-    command_meta[Command::WRA].is_column_command = true;
++      // Bus classification (for dual-bus controllers)
++      command_meta[Command::ACT].is_row_command = true;
++      command_meta[Command::PREpb].is_row_command = true;
++      command_meta[Command::PREab].is_row_command = true;
++      command_meta[Command::REFab].is_row_command = true;
++      command_meta[Command::REFpb].is_row_command = true;
++      command_meta[Command::RD].is_column_command = true;
++      command_meta[Command::WR].is_column_command = true;
++      command_meta[Command::RDA].is_column_command = true;
++      command_meta[Command::WRA].is_column_command = true;
+   }
+ };
+ 
+ // Self-registration
+-static bool _dram_hbm2 =
+-    DRAMSpec::register_standard("HBM2", [](const ConfigNode& config) { return std::make_unique<HBM2>(config); });
++static bool _dram_hbm2 = DRAMSpec::register_standard(
++    "HBM2", [](const ConfigNode& config) { return std::make_unique<HBM2>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/HBM3.cpp b/src/ramulator/dram/impl/HBM3.cpp
+index e1c5f5f..c683cdc 100644
+--- a/src/ramulator/dram/impl/HBM3.cpp
++++ b/src/ramulator/dram/impl/HBM3.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen HBM3
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -17,8 +20,6 @@
+ #include "ramulator/dram/commands/RFMpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -35,42 +36,15 @@ class HBM3 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nCCDR,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nRTW,
+-      nFAW,
+-      nPPD,
+-      nRFC,
+-      nRFCpb,
+-      nRFMab,
+-      nRFMpb,
+-      nRREFD,
+-      nREFI,
+-      nREFIpb,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCDS, nCCDL, nCCDR, nRRDS, nRRDL, nWTRS, nWTRL,
++    nRTW, nFAW, nPPD, nRFC, nRFCpb, nRFMab, nRFMpb, nRREFD, nREFI, nREFIpb, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls =
+-      std::tuple<Cmd::ACT<HBM3>, Cmd::PREpb<HBM3>, Cmd::PREab<HBM3>, Cmd::RD<HBM3>, Cmd::WR<HBM3>, Cmd::RDA<HBM3>,
+-                 Cmd::WRA<HBM3>, Cmd::REFab<HBM3>, Cmd::REFpb<HBM3>, Cmd::RFMab<HBM3>, Cmd::RFMpb<HBM3> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<HBM3>, Cmd::PREpb<HBM3>, Cmd::PREab<HBM3>, Cmd::RD<HBM3>, Cmd::WR<HBM3>, Cmd::RDA<HBM3>,
++      Cmd::WRA<HBM3>, Cmd::REFab<HBM3>, Cmd::REFpb<HBM3>, Cmd::RFMab<HBM3>, Cmd::RFMpb<HBM3>
++  >;
+ 
+   HBM3(const ConfigNode& config) {
+     // Counts
+@@ -81,28 +55,28 @@ class HBM3 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "PseudoChannel", "Sid", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb"});
++    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate", "nBL",   "nCL",    "nRCDRD", "nRCDWR", "nRP",    "nRAS",  "nRC",     "nWR",   "nRTP",
+-               "nCWL", "nCCDS", "nCCDL",  "nCCDR",  "nRRDS",  "nRRDL",  "nWTRS", "nWTRL",   "nRTW",  "nFAW",
+-               "nPPD", "nRFC",  "nRFCpb", "nRFMab", "nRFMpb", "nRREFD", "nREFI", "nREFIpb", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCDS", "nCCDL",
++        "nCCDR", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nRTW", "nFAW", "nPPD", "nRFC", "nRFCpb", "nRFMab", "nRFMpb",
++        "nRREFD", "nREFI", "nREFIpb", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 8;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // PseudoChannel
+-        State::N_A,     // Sid
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // PseudoChannel
++        State::N_A,           // Sid
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -111,23 +85,23 @@ class HBM3 : public DRAMSpec {
+     // Command handlers (function pointers, metadata, bank targets)
+     populate_commands(CommandImpls{}, *this);
+ 
+-    // Bus classification (for dual-bus controllers)
+-    command_meta[Command::ACT].is_row_command = true;
+-    command_meta[Command::PREpb].is_row_command = true;
+-    command_meta[Command::PREab].is_row_command = true;
+-    command_meta[Command::REFab].is_row_command = true;
+-    command_meta[Command::REFpb].is_row_command = true;
+-    command_meta[Command::RFMab].is_row_command = true;
+-    command_meta[Command::RFMpb].is_row_command = true;
+-    command_meta[Command::RD].is_column_command = true;
+-    command_meta[Command::WR].is_column_command = true;
+-    command_meta[Command::RDA].is_column_command = true;
+-    command_meta[Command::WRA].is_column_command = true;
++      // Bus classification (for dual-bus controllers)
++      command_meta[Command::ACT].is_row_command = true;
++      command_meta[Command::PREpb].is_row_command = true;
++      command_meta[Command::PREab].is_row_command = true;
++      command_meta[Command::REFab].is_row_command = true;
++      command_meta[Command::REFpb].is_row_command = true;
++      command_meta[Command::RFMab].is_row_command = true;
++      command_meta[Command::RFMpb].is_row_command = true;
++      command_meta[Command::RD].is_column_command = true;
++      command_meta[Command::WR].is_column_command = true;
++      command_meta[Command::RDA].is_column_command = true;
++      command_meta[Command::WRA].is_column_command = true;
+   }
+ };
+ 
+ // Self-registration
+-static bool _dram_hbm3 =
+-    DRAMSpec::register_standard("HBM3", [](const ConfigNode& config) { return std::make_unique<HBM3>(config); });
++static bool _dram_hbm3 = DRAMSpec::register_standard(
++    "HBM3", [](const ConfigNode& config) { return std::make_unique<HBM3>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/HBM4.cpp b/src/ramulator/dram/impl/HBM4.cpp
+index 247af11..634089d 100644
+--- a/src/ramulator/dram/impl/HBM4.cpp
++++ b/src/ramulator/dram/impl/HBM4.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen HBM4
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT.h"
+ #include "ramulator/dram/commands/PREab.h"
+ #include "ramulator/dram/commands/PREpb.h"
+@@ -17,8 +20,6 @@
+ #include "ramulator/dram/commands/RFMpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -35,42 +36,15 @@ class HBM4 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL,
+-      nCL,
+-      nRCDRD,
+-      nRCDWR,
+-      nRP,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nCCDS,
+-      nCCDL,
+-      nCCDR,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nRTW,
+-      nFAW,
+-      nPPD,
+-      nRFC,
+-      nRFCpb,
+-      nRFMab,
+-      nRFMpb,
+-      nRREFD,
+-      nREFI,
+-      nREFIpb,
+-      tCK_ps,
+-      COUNT
++    rate, nBL, nCL, nRCDRD, nRCDWR, nRP, nRAS, nRC, nWR, nRTP, nCWL, nCCDS, nCCDL, nCCDR, nRRDS, nRRDL, nWTRS, nWTRL,
++    nRTW, nFAW, nPPD, nRFC, nRFCpb, nRFMab, nRFMpb, nRREFD, nREFI, nREFIpb, tCK_ps, COUNT
+     };
+   };
+ 
+-  using CommandImpls =
+-      std::tuple<Cmd::ACT<HBM4>, Cmd::PREpb<HBM4>, Cmd::PREab<HBM4>, Cmd::RD<HBM4>, Cmd::WR<HBM4>, Cmd::RDA<HBM4>,
+-                 Cmd::WRA<HBM4>, Cmd::REFab<HBM4>, Cmd::REFpb<HBM4>, Cmd::RFMab<HBM4>, Cmd::RFMpb<HBM4> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT<HBM4>, Cmd::PREpb<HBM4>, Cmd::PREab<HBM4>, Cmd::RD<HBM4>, Cmd::WR<HBM4>, Cmd::RDA<HBM4>,
++      Cmd::WRA<HBM4>, Cmd::REFab<HBM4>, Cmd::REFpb<HBM4>, Cmd::RFMab<HBM4>, Cmd::RFMpb<HBM4>
++  >;
+ 
+   HBM4(const ConfigNode& config) {
+     // Counts
+@@ -81,28 +55,28 @@ class HBM4 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "PseudoChannel", "Sid", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb"});
++    set_names(commands, command_names, {"ACT", "PREpb", "PREab", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb"});
+     set_names(states, state_names, {"Opened", "Closed", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate", "nBL",   "nCL",    "nRCDRD", "nRCDWR", "nRP",    "nRAS",  "nRC",     "nWR",   "nRTP",
+-               "nCWL", "nCCDS", "nCCDL",  "nCCDR",  "nRRDS",  "nRRDL",  "nWTRS", "nWTRL",   "nRTW",  "nFAW",
+-               "nPPD", "nRFC",  "nRFCpb", "nRFMab", "nRFMpb", "nRREFD", "nREFI", "nREFIpb", "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL", "nCL", "nRCDRD", "nRCDWR", "nRP", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nCCDS", "nCCDL",
++        "nCCDR", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nRTW", "nFAW", "nPPD", "nRFC", "nRFCpb", "nRFMab", "nRFMpb",
++        "nRREFD", "nREFI", "nREFIpb", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 8;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // PseudoChannel
+-        State::N_A,     // Sid
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // PseudoChannel
++        State::N_A,           // Sid
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -111,23 +85,23 @@ class HBM4 : public DRAMSpec {
+     // Command handlers (function pointers, metadata, bank targets)
+     populate_commands(CommandImpls{}, *this);
+ 
+-    // Bus classification (for dual-bus controllers)
+-    command_meta[Command::ACT].is_row_command = true;
+-    command_meta[Command::PREpb].is_row_command = true;
+-    command_meta[Command::PREab].is_row_command = true;
+-    command_meta[Command::REFab].is_row_command = true;
+-    command_meta[Command::REFpb].is_row_command = true;
+-    command_meta[Command::RFMab].is_row_command = true;
+-    command_meta[Command::RFMpb].is_row_command = true;
+-    command_meta[Command::RD].is_column_command = true;
+-    command_meta[Command::WR].is_column_command = true;
+-    command_meta[Command::RDA].is_column_command = true;
+-    command_meta[Command::WRA].is_column_command = true;
++      // Bus classification (for dual-bus controllers)
++      command_meta[Command::ACT].is_row_command = true;
++      command_meta[Command::PREpb].is_row_command = true;
++      command_meta[Command::PREab].is_row_command = true;
++      command_meta[Command::REFab].is_row_command = true;
++      command_meta[Command::REFpb].is_row_command = true;
++      command_meta[Command::RFMab].is_row_command = true;
++      command_meta[Command::RFMpb].is_row_command = true;
++      command_meta[Command::RD].is_column_command = true;
++      command_meta[Command::WR].is_column_command = true;
++      command_meta[Command::RDA].is_column_command = true;
++      command_meta[Command::WRA].is_column_command = true;
+   }
+ };
+ 
+ // Self-registration
+-static bool _dram_hbm4 =
+-    DRAMSpec::register_standard("HBM4", [](const ConfigNode& config) { return std::make_unique<HBM4>(config); });
++static bool _dram_hbm4 = DRAMSpec::register_standard(
++    "HBM4", [](const ConfigNode& config) { return std::make_unique<HBM4>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/LPDDR5.cpp b/src/ramulator/dram/impl/LPDDR5.cpp
+index 020b826..2301354 100644
+--- a/src/ramulator/dram/impl/LPDDR5.cpp
++++ b/src/ramulator/dram/impl/LPDDR5.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen LPDDR5
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT1.h"
+ #include "ramulator/dram/commands/ACT2.h"
+ #include "ramulator/dram/commands/CAS_RD.h"
+@@ -18,8 +21,6 @@
+ #include "ramulator/dram/commands/REFpb.h"
+ #include "ramulator/dram/commands/WR.h"
+ #include "ramulator/dram/commands/WRA.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -36,46 +37,17 @@ class LPDDR5 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL_min,
+-      nBL_max,
+-      nCL,
+-      nRCD,
+-      nRP,
+-      nRPab,
+-      nRAS,
+-      nRC,
+-      nWR,
+-      nRTP,
+-      nCWL,
+-      nPPD,
+-      nCCDS,
+-      nCCDL,
+-      nCCDS_WR,
+-      nCCDL_WR,
+-      nRRDS,
+-      nRRDL,
+-      nWTRS,
+-      nWTRL,
+-      nFAW,
+-      nRFC,
+-      nRFCpb,
+-      nREFI,
+-      nREFIpb,
+-      nWCKPST,
+-      nCAS,
+-      nAAD,
+-      nCS,
+-      tCK_ps,
+-      nPBR2PBR,
+-      nPBR2ACT,
+-      COUNT
++    rate, nBL_min, nBL_max, nCL, nRCD, nRP, nRPab, nRAS, nRC, nWR, nRTP, nCWL, nPPD, nCCDS, nCCDL, nCCDS_WR,
++    nCCDL_WR, nRRDS, nRRDL, nWTRS, nWTRL, nFAW, nRFC, nRFCpb, nREFI, nREFIpb, nWCKPST, nCAS, nAAD, nCS, tCK_ps,
++    nPBR2PBR, nPBR2ACT, COUNT
+     };
+   };
+ 
+-  using CommandImpls = std::tuple<Cmd::ACT1<LPDDR5>, Cmd::ACT2<LPDDR5>, Cmd::PREpb<LPDDR5>, Cmd::PREab<LPDDR5>,
+-                                  Cmd::CAS_RD<LPDDR5>, Cmd::CAS_WR<LPDDR5>, Cmd::RD<LPDDR5>, Cmd::WR<LPDDR5>,
+-                                  Cmd::RDA<LPDDR5>, Cmd::WRA<LPDDR5>, Cmd::REFab<LPDDR5>, Cmd::REFpb<LPDDR5> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT1<LPDDR5>, Cmd::ACT2<LPDDR5>, Cmd::PREpb<LPDDR5>, Cmd::PREab<LPDDR5>, Cmd::CAS_RD<LPDDR5>,
++      Cmd::CAS_WR<LPDDR5>, Cmd::RD<LPDDR5>, Cmd::WR<LPDDR5>, Cmd::RDA<LPDDR5>, Cmd::WRA<LPDDR5>, Cmd::REFab<LPDDR5>,
++      Cmd::REFpb<LPDDR5>
++  >;
+ 
+   LPDDR5(const ConfigNode& config) {
+     // Counts
+@@ -86,28 +58,27 @@ class LPDDR5 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT1", "ACT2", "PREpb", "PREab", "CAS_RD", "CAS_WR", "RD", "WR", "RDA", "WRA", "REFab", "REFpb"});
++    set_names(commands, command_names, {"ACT1", "ACT2", "PREpb", "PREab", "CAS_RD", "CAS_WR", "RD", "WR", "RDA", "WRA", "REFab", "REFpb"});
+     set_names(states, state_names, {"Opened", "Closed", "Activating", "N_A"});
+-    set_names(timings, timing_names,
+-              {"rate",  "nBL_min", "nBL_max", "nCL",    "nRCD",     "nRP",     "nRPab",    "nRAS",     "nRC",
+-               "nWR",   "nRTP",    "nCWL",    "nPPD",   "nCCDS",    "nCCDL",   "nCCDS_WR", "nCCDL_WR", "nRRDS",
+-               "nRRDL", "nWTRS",   "nWTRL",   "nFAW",   "nRFC",     "nRFCpb",  "nREFI",    "nREFIpb",  "nWCKPST",
+-               "nCAS",  "nAAD",    "nCS",     "tCK_ps", "nPBR2PBR", "nPBR2ACT"});
++    set_names(timings, timing_names, {
++        "rate", "nBL_min", "nBL_max", "nCL", "nRCD", "nRP", "nRPab", "nRAS", "nRC", "nWR", "nRTP", "nCWL", "nPPD",
++        "nCCDS", "nCCDL", "nCCDS_WR", "nCCDL_WR", "nRRDS", "nRRDL", "nWTRS", "nWTRL", "nFAW", "nRFC", "nRFCpb",
++        "nREFI", "nREFIpb", "nWCKPST", "nCAS", "nAAD", "nCS", "tCK_ps", "nPBR2PBR", "nPBR2ACT"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 16;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD,  // Read -> RD
+-        Command::WR,  // Write -> WR
++        Command::RD,        // Read -> RD
++        Command::WR,        // Write -> WR
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -119,7 +90,7 @@ class LPDDR5 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_lpddr5 =
+-    DRAMSpec::register_standard("LPDDR5", [](const ConfigNode& config) { return std::make_unique<LPDDR5>(config); });
++static bool _dram_lpddr5 = DRAMSpec::register_standard(
++    "LPDDR5", [](const ConfigNode& config) { return std::make_unique<LPDDR5>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/dram/impl/LPDDR6.cpp b/src/ramulator/dram/impl/LPDDR6.cpp
+index 8f5b5be..e6c0b05 100644
+--- a/src/ramulator/dram/impl/LPDDR6.cpp
++++ b/src/ramulator/dram/impl/LPDDR6.cpp
+@@ -6,6 +6,9 @@
+  *
+  * Regenerate:   python -m ramulator codegen LPDDR6
+  ******************************************************************************/
++#include "ramulator/dram/dram_spec.h"
++
++#include "ramulator/dram/commands/populate.h"
+ #include "ramulator/dram/commands/ACT1.h"
+ #include "ramulator/dram/commands/ACT2.h"
+ #include "ramulator/dram/commands/CAS.h"
+@@ -20,8 +23,6 @@
+ #include "ramulator/dram/commands/WRA_S.h"
+ #include "ramulator/dram/commands/WR_L.h"
+ #include "ramulator/dram/commands/WR_S.h"
+-#include "ramulator/dram/commands/populate.h"
+-#include "ramulator/dram/dram_spec.h"
+ 
+ namespace Ramulator {
+ 
+@@ -38,57 +39,18 @@ class LPDDR6 : public DRAMSpec {
+   };
+   struct Timing {
+     enum : int {
+-      rate,
+-      nBL_min,
+-      nBL_max,
+-      nBL_min_L,
+-      nBL_max_L,
+-      nRL,
+-      nWL,
+-      nACU,
+-      nRCDr,
+-      nRCDw,
+-      nRP,
+-      nRPab,
+-      nRAS,
+-      nRC,
+-      nWTP,
+-      nRTP,
+-      nRTP_L,
+-      nPPD,
+-      nCCDS,
+-      nCCDL,
+-      nCCDL_L,
+-      nCCDS_WR,
+-      nCCDL_WR,
+-      nCCDL_WR_L,
+-      nRRD,
+-      nWTRS,
+-      nWTRL,
+-      nRTW_S,
+-      nRTW_L,
+-      nRTW_S_L,
+-      nRTW_L_L,
+-      nWCK2DQO,
+-      nRPST,
+-      nODTLon,
+-      nODTon_min,
+-      nFAW,
+-      nRFC,
+-      nREFI,
+-      nWCKPST,
+-      nCAS,
+-      nAAD,
+-      nCS,
+-      tCK_ps,
+-      COUNT
++    rate, nBL_min, nBL_max, nBL_min_L, nBL_max_L, nRL, nWL, nACU, nRCDr, nRCDw, nRP, nRPab, nRAS, nRC, nWTP, nRTP,
++    nRTP_L, nPPD, nCCDS, nCCDL, nCCDL_L, nCCDS_WR, nCCDL_WR, nCCDL_WR_L, nRRD, nWTRS, nWTRL, nRTW_S, nRTW_L,
++    nRTW_S_L, nRTW_L_L, nWCK2DQO, nRPST, nODTLon, nODTon_min, nFAW, nRFC, nREFI, nWCKPST, nCAS, nAAD, nCS, tCK_ps,
++    COUNT
+     };
+   };
+ 
+-  using CommandImpls =
+-      std::tuple<Cmd::ACT1<LPDDR6>, Cmd::ACT2<LPDDR6>, Cmd::PREpb<LPDDR6>, Cmd::PREab<LPDDR6>, Cmd::CAS<LPDDR6>,
+-                 Cmd::RD_S<LPDDR6>, Cmd::WR_S<LPDDR6>, Cmd::RDA_S<LPDDR6>, Cmd::WRA_S<LPDDR6>, Cmd::RD_L<LPDDR6>,
+-                 Cmd::WR_L<LPDDR6>, Cmd::RDA_L<LPDDR6>, Cmd::WRA_L<LPDDR6>, Cmd::REFab<LPDDR6> >;
++  using CommandImpls = std::tuple<
++      Cmd::ACT1<LPDDR6>, Cmd::ACT2<LPDDR6>, Cmd::PREpb<LPDDR6>, Cmd::PREab<LPDDR6>, Cmd::CAS<LPDDR6>,
++      Cmd::RD_S<LPDDR6>, Cmd::WR_S<LPDDR6>, Cmd::RDA_S<LPDDR6>, Cmd::WRA_S<LPDDR6>, Cmd::RD_L<LPDDR6>,
++      Cmd::WR_L<LPDDR6>, Cmd::RDA_L<LPDDR6>, Cmd::WRA_L<LPDDR6>, Cmd::REFab<LPDDR6>
++  >;
+ 
+   LPDDR6(const ConfigNode& config) {
+     // Counts
+@@ -99,31 +61,28 @@ class LPDDR6 : public DRAMSpec {
+ 
+     // String name maps + reverse lookup vectors
+     set_names(levels, level_names, {"Channel", "Rank", "BankGroup", "Bank", "Row", "Column"});
+-    set_names(commands, command_names,
+-              {"ACT1", "ACT2", "PREpb", "PREab", "CAS", "RD_S", "WR_S", "RDA_S", "WRA_S", "RD_L", "WR_L", "RDA_L",
+-               "WRA_L", "REFab"});
++    set_names(commands, command_names, {"ACT1", "ACT2", "PREpb", "PREab", "CAS", "RD_S", "WR_S", "RDA_S", "WRA_S", "RD_L", "WR_L", "RDA_L", "WRA_L", "REFab"});
+     set_names(states, state_names, {"Opened", "Closed", "Activating", "N_A"});
+-    set_names(
+-        timings, timing_names,
+-        {"rate",   "nBL_min", "nBL_max",  "nBL_min_L", "nBL_max_L", "nRL",        "nWL",     "nACU",       "nRCDr",
+-         "nRCDw",  "nRP",     "nRPab",    "nRAS",      "nRC",       "nWTP",       "nRTP",    "nRTP_L",     "nPPD",
+-         "nCCDS",  "nCCDL",   "nCCDL_L",  "nCCDS_WR",  "nCCDL_WR",  "nCCDL_WR_L", "nRRD",    "nWTRS",      "nWTRL",
+-         "nRTW_S", "nRTW_L",  "nRTW_S_L", "nRTW_L_L",  "nWCK2DQO",  "nRPST",      "nODTLon", "nODTon_min", "nFAW",
+-         "nRFC",   "nREFI",   "nWCKPST",  "nCAS",      "nAAD",      "nCS",        "tCK_ps"});
++    set_names(timings, timing_names, {
++        "rate", "nBL_min", "nBL_max", "nBL_min_L", "nBL_max_L", "nRL", "nWL", "nACU", "nRCDr", "nRCDw", "nRP",
++        "nRPab", "nRAS", "nRC", "nWTP", "nRTP", "nRTP_L", "nPPD", "nCCDS", "nCCDL", "nCCDL_L", "nCCDS_WR",
++        "nCCDL_WR", "nCCDL_WR_L", "nRRD", "nWTRS", "nWTRL", "nRTW_S", "nRTW_L", "nRTW_S_L", "nRTW_L_L", "nWCK2DQO",
++        "nRPST", "nODTLon", "nODTon_min", "nFAW", "nRFC", "nREFI", "nWCKPST", "nCAS", "nAAD", "nCS", "tCK_ps"
++    });
+ 
+     // Static spec data
+     internal_prefetch_size = 16;
+     init_states = {
+-        State::N_A,     // Channel
+-        State::N_A,     // Rank
+-        State::N_A,     // BankGroup
+-        State::Closed,  // Bank
+-        State::Closed,  // Row
+-        State::N_A,     // Column
++        State::N_A,           // Channel
++        State::N_A,           // Rank
++        State::N_A,           // BankGroup
++        State::Closed,        // Bank
++        State::Closed,        // Row
++        State::N_A,           // Column
+     };
+     supported_requests = {
+-        Command::RD_S,  // Read -> RD_S
+-        Command::WR_S,  // Write -> WR_S
++        Command::RD_S,      // Read -> RD_S
++        Command::WR_S,      // Write -> WR_S
+     };
+ 
+     // Runtime config (organization, timing values, timing constraints)
+@@ -135,7 +94,7 @@ class LPDDR6 : public DRAMSpec {
+ };
+ 
+ // Self-registration
+-static bool _dram_lpddr6 =
+-    DRAMSpec::register_standard("LPDDR6", [](const ConfigNode& config) { return std::make_unique<LPDDR6>(config); });
++static bool _dram_lpddr6 = DRAMSpec::register_standard(
++    "LPDDR6", [](const ConfigNode& config) { return std::make_unique<LPDDR6>(config); });
+ 
+ }  // namespace Ramulator
+diff --git a/src/ramulator/gpgpusim/CMakeLists.txt b/src/ramulator/gpgpusim/CMakeLists.txt
+new file mode 100644
+index 0000000..e657732
+--- /dev/null
++++ b/src/ramulator/gpgpusim/CMakeLists.txt
+@@ -0,0 +1,17 @@
++# Components for running Ramulator as the DRAM model of GPGPU-Sim / Accel-Sim
++add_library(ramulator-gpgpusim OBJECT)
++
++target_sources(
++  ramulator-gpgpusim PRIVATE
++  gpgpusim.h
++  gpgpusim_frontend.cpp
++  gpgpusim_counter.cpp
++  gpgpusim_frfcfs.cpp
++  gpu_bg_co_ba_ro.cpp
++)
++
++target_link_libraries(
++  ramulator
++  PRIVATE
++  ramulator-gpgpusim
++)
+diff --git a/src/ramulator/gpgpusim/gpgpusim.h b/src/ramulator/gpgpusim/gpgpusim.h
+new file mode 100644
+index 0000000..593d24f
+--- /dev/null
++++ b/src/ramulator/gpgpusim/gpgpusim.h
+@@ -0,0 +1,64 @@
++// Ramulator components for running Ramulator as the DRAM model of
++// GPGPU-Sim / Accel-Sim (the bridge lives in Accel-Sim:
++// gpu-simulator/gpgpu-sim/src/gpgpu-sim/ramulator_dram.cc).
++//
++// Components (all selectable from a Ramulator config):
++//   frontend          GPGPUSim         External-style frontend plus the fixed
++//                                      latency of the GPU memory controller
++//                                      front end (param fixed_latency_ns)
++//   controller_plugin GPGPUSimCounter  per-channel command counters read by
++//                                      Accel-Sim for its stats and AccelWattch
++//   addr_mapper       GPUBgCoBaRo      GPU-style mapping inside a channel
++//
++// This header only exposes plain data and functions; the registered
++// component classes stay inside libramulator.
++
++#ifndef RAMULATOR_GPGPUSIM_GPGPUSIM_H
++#define RAMULATOR_GPGPUSIM_GPGPUSIM_H
++
++#include <string>
++#include <vector>
++
++namespace Ramulator {
++
++class IFrontEnd;
++
++namespace GPGPUSim {
++
++// Filled by one GPGPUSimCounter plugin (one per controller = channel).
++struct ChannelInfo {
++  int channel = -1;
++
++  // Command counts since the start of the simulation
++  unsigned long long n_act = 0;
++  unsigned long long n_pre = 0;  // PREpb + PREab + auto-precharges (RDA/WRA)
++  unsigned long long n_rd = 0;   // RD + RDA
++  unsigned long long n_wr = 0;   // WR + WRA
++  unsigned long long n_ref = 0;  // REFab + REFpb
++  unsigned long long n_issued = 0;
++
++  // Device / controller description (from the DRAM spec and controller)
++  std::vector<std::string> level_names;  // "Channel", "BankGroup", ...
++  std::vector<int> level_sizes;
++  int internal_prefetch = 1;
++  int tx_bytes = 0;
++  int burst_ticks = 1;  // data-bus ticks per RD/WR (nBL)
++  int data_buses = 1;   // independent data buses (HBM pseudo-channels)
++  int read_buffer_size = 0;
++  int write_buffer_size = 0;
++  float tck_ns = 0;  // one controller tick
++  std::string standard;
++  std::string addr_mapper;
++};
++
++// One entry per GPGPUSimCounter created, in creation order (= channel order).
++// Clear it before creating a memory system.
++std::vector<ChannelInfo*>& channels();
++
++// Fixed front-end latency of a GPGPUSim frontend; -1 for any other frontend.
++float fixed_latency_ns(IFrontEnd* frontend);
++
++}  // namespace GPGPUSim
++}  // namespace Ramulator
++
++#endif  // RAMULATOR_GPGPUSIM_GPGPUSIM_H
+diff --git a/src/ramulator/gpgpusim/gpgpusim_counter.cpp b/src/ramulator/gpgpusim/gpgpusim_counter.cpp
+new file mode 100644
+index 0000000..6a749a1
+--- /dev/null
++++ b/src/ramulator/gpgpusim/gpgpusim_counter.cpp
+@@ -0,0 +1,88 @@
++// GPGPUSimCounter controller plugin: counts the DRAM commands one controller
++// (= one channel) issues and describes the device, so Accel-Sim can print
++// per-channel DRAM stats and feed AccelWattch (which charges energy per read,
++// write and precharge).
++
++#include "ramulator/base/base.h"
++#include "ramulator/controller/controller_base.h"
++#include "ramulator/controller/plugin/i_controller_plugin.h"
++#include "ramulator/dram/dram_spec.h"
++#include "ramulator/gpgpusim/gpgpusim.h"
++
++namespace Ramulator {
++
++namespace GPGPUSim {
++
++std::vector<ChannelInfo*>& channels() {
++  static std::vector<ChannelInfo*> registry;
++  return registry;
++}
++
++}  // namespace GPGPUSim
++
++class GPGPUSimCounter : public IControllerPlugin, public Implementation {
++  RAMULATOR_REGISTER_IMPLEMENTATION(IControllerPlugin, GPGPUSimCounter, "GPGPUSimCounter")
++
++ private:
++  enum Kind { OTHER, ACT, PRE, RD, RDA, WR, WRA, REF };
++  std::vector<Kind> m_kind;  // indexed by command id
++  GPGPUSim::ChannelInfo m_info;
++
++ public:
++  void init() override { GPGPUSim::channels().push_back(&m_info); }
++
++  void setup(IFrontEnd* frontend, IMemorySystem* memory_system) override {
++    auto* ctrl = cast_parent<ControllerBase>();
++    const DRAMSpec& spec = *ctrl->m_device.m_spec;
++
++    m_kind.assign(spec.command_names.size(), OTHER);
++    for (size_t i = 0; i < spec.command_names.size(); i++) {
++      const std::string& c = spec.command_names[i];
++      if (c == "ACT")
++        m_kind[i] = ACT;
++      else if (c.rfind("PRE", 0) == 0)
++        m_kind[i] = PRE;
++      else if (c == "RD")
++        m_kind[i] = RD;
++      else if (c == "RDA")
++        m_kind[i] = RDA;
++      else if (c == "WR")
++        m_kind[i] = WR;
++      else if (c == "WRA")
++        m_kind[i] = WRA;
++      else if (c.rfind("REF", 0) == 0)
++        m_kind[i] = REF;
++    }
++
++    m_info.channel = ctrl->m_channel_id;
++    m_info.level_names = spec.level_names;
++    m_info.level_sizes.assign(spec.organization.level_sizes.begin(),
++                              spec.organization.level_sizes.end());
++    m_info.internal_prefetch = spec.internal_prefetch_size;
++    m_info.tx_bytes = ctrl->get_tx_bytes();
++    m_info.burst_ticks = spec.has_timing("nBL") ? spec.get_timing_value("nBL") : 1;
++    m_info.data_buses = spec.has_level("PseudoChannel") ? spec.get_level_size("PseudoChannel") : 1;
++    m_info.read_buffer_size = ctrl->get_read_buffer_size();
++    m_info.write_buffer_size = ctrl->get_write_buffer_size();
++    m_info.tck_ns = ctrl->get_tCK();
++    m_info.standard = spec.standard_name;
++    m_info.addr_mapper = ctrl->m_addr_mapper->m_impl->get_name();
++  }
++
++  void on_issue(const Request& req) override {
++    m_info.n_issued++;
++    if (req.command < 0 || req.command >= (int)m_kind.size()) return;
++    switch (m_kind[req.command]) {
++      case ACT: m_info.n_act++; break;
++      case PRE: m_info.n_pre++; break;
++      case RD: m_info.n_rd++; break;
++      case RDA: m_info.n_rd++; m_info.n_pre++; break;  // auto-precharge closes the row
++      case WR: m_info.n_wr++; break;
++      case WRA: m_info.n_wr++; m_info.n_pre++; break;
++      case REF: m_info.n_ref++; break;
++      default: break;
++    }
++  }
++};
++
++}  // namespace Ramulator
+diff --git a/src/ramulator/gpgpusim/gpgpusim_frfcfs.cpp b/src/ramulator/gpgpusim/gpgpusim_frfcfs.cpp
+new file mode 100644
+index 0000000..8d12687
+--- /dev/null
++++ b/src/ramulator/gpgpusim/gpgpusim_frfcfs.cpp
+@@ -0,0 +1,79 @@
++// GPGPUSimFRFCFS scheduler: classic FR-FCFS (Rixner et al., ISCA 2000), the
++// policy of GPGPU-Sim's built-in DRAM scheduler (dram_sched.cc):
++//   1. an open row is not closed while requests that hit it are queued
++//      (GPGPU-Sim keeps serving a row until its queue "bin" is empty),
++//   2. among the rest: commands that can issue now first, row hits first,
++//      then the oldest request.
++// Ramulator's FRFCFS ranks only by "can issue now" then age, so an older
++// request to another row can close a row that still has queued hits;
++// FRFCFSRowHit only protects hits older than the closing request.
++
++#include <vector>
++
++#include "ramulator/controller/controller_base.h"
++#include "ramulator/controller/scheduler/i_scheduler.h"
++
++namespace Ramulator {
++
++class GPGPUSimFRFCFS : public IScheduler, public Implementation {
++  RAMULATOR_REGISTER_IMPLEMENTATION(IScheduler, GPGPUSimFRFCFS, "GPGPUSimFRFCFS")
++
++  ControllerBase* m_ctrl = nullptr;
++  std::vector<char> m_bank_has_hit;  // per flat bank: a queued request hits the open row
++
++ public:
++  void init() override {
++    m_ctrl = cast_parent<ControllerBase>();
++    m_bank_has_hit.assign(m_ctrl->m_device.m_bank_nodes.size(), 0);
++  }
++
++  ReqBuffer::iterator get_best_request(ReqBuffer& buffer, RequestFilterRef filter) override {
++    if (buffer.size() == 0) return buffer.end();
++
++    // Pass 1: next command of every request, and which banks have queued row hits
++    std::fill(m_bank_has_hit.begin(), m_bank_has_hit.end(), 0);
++    for (auto it = buffer.begin(); it != buffer.end(); it++) {
++      it->command = m_ctrl->get_preq_command(it->final_command, it->addr_vec);
++      if (is_row_hit(*it)) {
++        int bank = m_ctrl->m_device.get_flat_bank_id(it->addr_vec);
++        if (bank >= 0 && bank < (int)m_bank_has_hit.size()) m_bank_has_hit[bank] = 1;
++      }
++    }
++
++    // Pass 2: best candidate = (ready, row hit, oldest)
++    auto best = buffer.end();
++    bool best_ready = false, best_hit = false;
++    for (auto it = buffer.begin(); it != buffer.end(); it++) {
++      if (filter && !filter(*it)) continue;
++      if (closes_row_with_hits(*it)) continue;
++      bool ready = m_ctrl->check_timing(it->command, it->addr_vec);
++      bool hit = is_row_hit(*it);
++      if (best == buffer.end() || ready > best_ready ||
++          (ready == best_ready && (hit > best_hit ||
++                                   (hit == best_hit && it->arrive < best->arrive)))) {
++        best = it;
++        best_ready = ready;
++        best_hit = hit;
++      }
++    }
++    return best;
++  }
++
++ private:
++  // The request's next command is its final column command on an open row
++  bool is_row_hit(const Request& req) const {
++    return req.command == req.final_command &&
++           m_ctrl->m_device.check_rowbuffer_hit(req.final_command, req.addr_vec, m_ctrl->m_clk);
++  }
++
++  // The request's next command would close a row that queued requests still hit
++  bool closes_row_with_hits(const Request& req) const {
++    const auto& spec = *m_ctrl->m_device.m_spec;
++    if (!spec.command_meta[req.command].is_closing || req.command == req.final_command) return false;
++    if (spec.bank_targets[req.command] != BankTarget::Single) return false;
++    int bank = m_ctrl->m_device.get_flat_bank_id(req.addr_vec);
++    return bank >= 0 && bank < (int)m_bank_has_hit.size() && m_bank_has_hit[bank];
++  }
++};
++
++}  // namespace Ramulator
+diff --git a/src/ramulator/gpgpusim/gpgpusim_frontend.cpp b/src/ramulator/gpgpusim/gpgpusim_frontend.cpp
+new file mode 100644
+index 0000000..fcabac6
+--- /dev/null
++++ b/src/ramulator/gpgpusim/gpgpusim_frontend.cpp
+@@ -0,0 +1,56 @@
++// GPGPUSim frontend: like the External frontend (the host simulator injects
++// requests and ticks the memory system), plus the fixed latency of the GPU
++// memory controller front end, which Accel-Sim applies before a request
++// reaches the Ramulator controller.
++
++#include "ramulator/base/param.h"
++#include "ramulator/frontend/i_frontend.h"
++#include "ramulator/gpgpusim/gpgpusim.h"
++
++namespace Ramulator {
++
++class GPGPUSimFrontEnd : public IFrontEnd, public Implementation {
++  RAMULATOR_REGISTER_IMPLEMENTATION(IFrontEnd, GPGPUSimFrontEnd, "GPGPUSim")
++
++ public:
++  float m_fixed_latency_ns = 0;
++
++  void init() override {
++    RAMULATOR_PARSE_PARAM(m_clock_ratio, unsigned int, "clock_ratio").default_val(1);
++    RAMULATOR_PARSE_PARAM(m_fixed_latency_ns, float, "fixed_latency_ns").default_val(0.0f);
++    if (m_fixed_latency_ns < 0) {
++      throw std::runtime_error("GPGPUSim frontend: fixed_latency_ns must be >= 0");
++    }
++  }
++
++  void tick() override {}
++
++  bool is_finished() override { return false; }
++
++  bool receive_external_requests(int req_type_id, Addr_t addr, int source_id,
++                                 std::function<void(Request&)> callback,
++                                 int size_bytes) override {
++    return receive_external_requests(req_type_id, addr, source_id, -1,
++                                     std::move(callback), size_bytes);
++  }
++
++  bool receive_external_requests(int req_type_id, Addr_t addr, int source_id,
++                                 int ingress_id,
++                                 std::function<void(Request&)> callback,
++                                 int size_bytes) override {
++    Request req(addr, req_type_id, source_id, std::move(callback));
++    req.ingress_id = ingress_id;
++    req.size_bytes = size_bytes;
++    return m_memory_system->send(req);
++  }
++};
++
++namespace GPGPUSim {
++
++float fixed_latency_ns(IFrontEnd* frontend) {
++  auto* fe = dynamic_cast<GPGPUSimFrontEnd*>(frontend);
++  return fe ? fe->m_fixed_latency_ns : -1.0f;
++}
++
++}  // namespace GPGPUSim
++}  // namespace Ramulator
+diff --git a/src/ramulator/gpgpusim/gpu_bg_co_ba_ro.cpp b/src/ramulator/gpgpusim/gpu_bg_co_ba_ro.cpp
+new file mode 100644
+index 0000000..f907bda
+--- /dev/null
++++ b/src/ramulator/gpgpusim/gpu_bg_co_ba_ro.cpp
+@@ -0,0 +1,60 @@
++// GPUBgCoBaRo address mapper: GPU-style mapping inside one channel.
++//
++// From the least significant bit of the (transaction-aligned) address:
++//   [PseudoChannel] [BankGroup] | Column | other levels (e.g. Sid, Bank) | Row
++// then every bank-level index is XORed with the low row bits.
++//
++// Consecutive 32B transactions rotate over pseudo-channels and bank groups, so
++// back-to-back column commands are tCCD_S apart instead of tCCD_L; the XOR
++// stops arrays aligned to large powers of two (e.g. a[], b[], c[]) from
++// fighting over one bank. Ramulator's built-in mappers put the column lowest,
++// which costs GPU streaming traffic 1.5-2.7x bandwidth on GDDR6.
++
++#include <algorithm>
++
++#include "ramulator/controller/addr_mapper/addr_mapper_base.h"
++#include "ramulator/controller/addr_mapper/i_addr_mapper.h"
++
++namespace Ramulator {
++
++class GPUBgCoBaRo : public IAddrMapper, public AddrMapperBase {
++  RAMULATOR_REGISTER_IMPLEMENTATION_DERIVED(IAddrMapper, GPUBgCoBaRo, AddrMapperBase, "GPUBgCoBaRo")
++
++  std::vector<int> m_low;  // m_addr_bits indices mapped below the column
++  std::vector<int> m_mid;  // between column and row
++
++ public:
++  void init() override {
++    AddrMapperBase::init();
++    const DRAMSpec& spec = *m_ctrl->m_device.m_spec;
++    for (const char* name : {"PseudoChannel", "BankGroup"}) {
++      if (spec.has_level(name)) m_low.push_back(spec.get_level_id(name) - 1);
++    }
++    for (int i = 0; i < m_row_idx; i++) {
++      if (std::find(m_low.begin(), m_low.end(), i) == m_low.end()) m_mid.push_back(i);
++    }
++  }
++
++  void apply(Request& req) override {
++    req.addr_vec.resize(m_num_mapped_levels + 1, -1);
++    Addr_t addr = req.intra_channel_addr >> m_tx_offset;
++    for (int i : m_low) {
++      req.addr_vec[i + 1] = slice_lower_bits(addr, m_addr_bits[i]);
++    }
++    req.addr_vec[m_col_idx + 1] = slice_lower_bits(addr, m_addr_bits[m_col_idx]);
++    for (int i : m_mid) {
++      req.addr_vec[i + 1] = slice_lower_bits(addr, m_addr_bits[i]);
++    }
++    req.addr_vec[m_row_idx + 1] = slice_lower_bits(addr, m_addr_bits[m_row_idx]);
++
++    // Permutation interleaving: XOR bank-level indices with the low row bits
++    int row = req.addr_vec[m_row_idx + 1], shift = 0;
++    for (int i = 0; i < m_row_idx; i++) {
++      if (m_addr_bits[i] == 0) continue;
++      req.addr_vec[i + 1] ^= (row >> shift) & ((1 << m_addr_bits[i]) - 1);
++      shift += m_addr_bits[i];
++    }
++  }
++};
++
++}  // namespace Ramulator

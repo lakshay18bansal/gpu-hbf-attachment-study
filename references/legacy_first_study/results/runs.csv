@@ -1,0 +1,60 @@
+workload,config,variant,tR_us,prefetch,cycles,time_us,slowdown_vs_C1,hbm_gbps,hbm_pct_peak,hbf_read_gbps,hbf_pct_link,array_amp,service_amp,mshr_merge,lhb_hit,pf_useful,pf_wasted,e2e_avg_cyc,e2e_p95_cyc,phy_hbf_stall_ticks,phy_hbm_stall_ticks,host_s,run
+qwen3_kernel:4667,C1_hbm_only,-,,,51536,36.55,1.0,229.6,56.1,,,,,,,,,,,,,81,C1_hbm_only__qwen3_kernel_4667
+qwen3_kernel:4667,C2_hbf_dram,tR15 pf-off,15.0,off,416721,295.55,8.086,0.0,0.0,28.4,6.9,1.0,15.56,0.878,,,,8931.7,21248.0,,,297,C2_hbf_dram__qwen3_kernel_4667__tR15__pfoff
+qwen3_kernel:4667,C2_hbf_dram,tR15 pf-on,15.0,on,61225,43.42,1.188,0.1,0.0,193.2,47.2,1.0,1.0,0.589,0.9748,2048.0,0.0,382.3,144.0,,,85,C2_hbf_dram__qwen3_kernel_4667__tR15__pfon
+qwen3_kernel:4667,C3_iso_stack,tR15 pf-off,15.0,off,399668,283.45,7.7551,0.0,0.0,29.6,7.2,1.0,15.22,0.881,,,,8768.0,21232.0,,,288,C3_iso_stack__qwen3_kernel_4667__tR15__pfoff
+qwen3_kernel:4667,C3_iso_stack,tR15 pf-on,15.0,on,60852,43.16,1.1808,0.1,0.0,194.4,47.5,1.0,1.0,0.598,0.9754,2048.0,0.0,381.1,144.0,,,94,C3_iso_stack__qwen3_kernel_4667__tR15__pfon
+qwen3_kernel:4667,C3_iso_shoreline,tR15 pf-off,15.0,off,420534,298.25,8.16,0.0,0.0,28.1,13.7,1.0,14.67,0.885,,,,9183.1,21344.0,,,294,C3_iso_shoreline__qwen3_kernel_4667__tR15__pfoff
+qwen3_kernel:4667,C3_iso_shoreline,tR15 pf-on,15.0,on,82055,58.2,1.5922,0.1,0.0,144.1,70.4,1.0,1.0,0.917,0.9229,2048.0,0.0,1553.5,4368.0,,,41,C3_iso_shoreline__qwen3_kernel_4667__tR15__pfon
+qwen3_kernel:4667,C4_behind_hbm,tR15 pf-off,15.0,off,419520,297.53,8.1403,0.0,0.0,28.2,6.9,1.0,14.39,0.888,,,,9088.3,21296.0,286567.0,292.0,250,C4_behind_hbm__qwen3_kernel_4667__tR15__pfoff
+qwen3_kernel:4667,C4_behind_hbm,tR15 pf-on,15.0,on,61894,43.9,1.201,0.1,0.0,191.1,46.7,1.0,1.0,0.604,0.9756,2048.0,0.0,413.0,384.0,495608.0,762.0,92,C4_behind_hbm__qwen3_kernel_4667__tR15__pfon
+qwen3_layer13,C1_hbm_only,-,,,974725,691.29,1.0,146.5,35.8,,,,,,,,,,,,,927,C1_hbm_only__qwen3_layer13
+qwen3_layer13,C2_hbf_dram,tR15 pf-off,15.0,off,5500497,3901.06,5.6431,0.2,0.1,25.8,6.3,1.0,14.15,0.889,,,,9343.6,21248.0,,,4471,C2_hbf_dram__qwen3_layer13__tR15__pfoff
+qwen3_layer13,C2_hbf_dram,tR15 pf-on,15.0,on,955069,677.35,0.9798,0.9,0.4,148.6,36.3,1.0,1.0,0.628,0.9958,24580.0,0.0,124.1,128.0,,,1039,C2_hbf_dram__qwen3_layer13__tR15__pfon
+qwen3_layer13,C2_hbf_dram,tR20 pf-on,20.0,on,1005453,713.09,1.0315,0.9,0.4,141.2,34.5,1.0,1.0,0.642,0.9931,24580.0,0.0,164.1,128.0,,,1165,C2_hbf_dram__qwen3_layer13__tR20__pfon
+qwen3_layer13,C2_hbf_dram,tR3 pf-on,3.0,on,899146,637.69,0.9225,1.0,0.4,157.9,38.5,1.0,1.0,0.634,0.9982,24537.0,0.0,110.9,128.0,,,806,C2_hbf_dram__qwen3_layer13__tR3__pfon
+qwen3_layer13,C2_hbf_dram,tR5 pf-on,5.0,on,900913,638.95,0.9243,1.0,0.4,157.6,38.5,1.0,1.0,0.633,0.9982,24552.0,0.0,112.5,128.0,,,845,C2_hbf_dram__qwen3_layer13__tR5__pfon
+qwen3_layer13,C3_iso_stack,tR15 pf-off,15.0,off,5497183,3898.71,5.6397,0.2,0.0,25.8,6.3,1.0,13.66,0.893,,,,9367.0,21248.0,,,4567,C3_iso_stack__qwen3_layer13__tR15__pfoff
+qwen3_layer13,C3_iso_stack,tR15 pf-on,15.0,on,951442,674.78,0.9761,0.9,0.2,149.2,36.4,1.0,1.0,0.64,0.9954,24580.0,0.0,128.8,128.0,,,1148,C3_iso_stack__qwen3_layer13__tR15__pfon
+qwen3_layer13,C3_iso_stack,tR20 pf-off,20.0,off,7165663,5082.03,7.3515,0.1,0.0,19.8,4.8,1.0,13.87,0.892,,,,12444.2,28288.0,,,4118,C3_iso_stack__qwen3_layer13__tR20__pfoff
+qwen3_layer13,C3_iso_stack,tR20 pf-on,20.0,on,1014644,719.61,1.041,0.9,0.2,139.9,34.2,1.0,1.0,0.65,0.994,24580.0,0.0,146.4,128.0,,,1367,C3_iso_stack__qwen3_layer13__tR20__pfon
+qwen3_layer13,C3_iso_stack,tR3 pf-off,3.0,off,1564850,1109.82,1.6054,0.6,0.1,90.7,22.1,1.009,12.74,0.9,,,,2067.2,4384.0,,,1511,C3_iso_stack__qwen3_layer13__tR3__pfoff
+qwen3_layer13,C3_iso_stack,tR3 pf-on,3.0,on,897891,636.8,0.9212,1.0,0.2,158.1,38.6,1.0,1.0,0.626,0.9982,24526.0,0.0,109.7,128.0,,,827,C3_iso_stack__qwen3_layer13__tR3__pfon
+qwen3_layer13,C3_iso_stack,tR5 pf-off,5.0,off,2249512,1595.4,2.3078,0.4,0.1,63.1,15.4,1.018,14.11,0.89,,,,3305.0,7168.0,,,2136,C3_iso_stack__qwen3_layer13__tR5__pfoff
+qwen3_layer13,C3_iso_stack,tR5 pf-on,5.0,on,899123,637.68,0.9224,1.0,0.2,157.9,38.5,1.0,1.0,0.627,0.9985,24549.0,0.0,111.3,128.0,,,865,C3_iso_stack__qwen3_layer13__tR5__pfon
+qwen3_layer13,C3_iso_shoreline,tR15 pf-off,15.0,off,5606040,3975.91,5.7514,0.2,0.1,25.3,12.4,1.0,13.37,0.896,,,,9643.7,21376.0,,,4572,C3_iso_shoreline__qwen3_layer13__tR15__pfoff
+qwen3_layer13,C3_iso_shoreline,tR15 pf-on,15.0,on,1219703,865.04,1.2513,0.7,0.4,116.4,56.8,1.0,1.0,0.904,0.9536,24511.0,0.0,1333.3,3888.0,,,1251,C3_iso_shoreline__qwen3_layer13__tR15__pfon
+qwen3_layer13,C3_iso_shoreline,tR20 pf-on,20.0,on,1256304,891.0,1.2889,0.7,0.3,113.0,55.2,1.0,1.0,0.896,0.9567,24568.0,0.0,1338.5,4160.0,,,1296,C3_iso_shoreline__qwen3_layer13__tR20__pfon
+qwen3_layer13,C3_iso_shoreline,tR3 pf-on,3.0,on,1136611,806.11,1.1661,0.8,0.4,124.9,61.0,1.0,1.0,0.89,0.9687,24177.0,0.0,1273.0,4128.0,,,1087,C3_iso_shoreline__qwen3_layer13__tR3__pfon
+qwen3_layer13,C3_iso_shoreline,tR5 pf-on,5.0,on,1146380,813.04,1.1761,0.8,0.4,123.8,60.5,1.0,1.0,0.902,0.9846,24435.0,0.0,1295.9,3984.0,,,1107,C3_iso_shoreline__qwen3_layer13__tR5__pfon
+qwen3_layer13,C4_behind_hbm,tR15 pf-off,15.0,off,5456749,3870.03,5.5982,0.2,0.0,26.0,6.4,1.0,14.3,0.888,,,,9307.5,21264.0,2909252.0,26860.0,4539,C4_behind_hbm__qwen3_layer13__tR15__pfoff
+qwen3_layer13,C4_behind_hbm,tR15 pf-on,15.0,on,962824,682.85,0.9878,0.9,0.2,147.4,36.0,1.0,1.0,0.65,0.9961,24580.0,0.0,153.9,240.0,5984901.0,64795.0,1316,C4_behind_hbm__qwen3_layer13__tR15__pfon
+qwen3_layer13,C4_behind_hbm,tR15 pf-on hop+200ns,15.0,on,963712,683.48,0.9887,0.9,0.2,147.3,36.0,1.0,1.0,0.651,0.9958,24580.0,0.0,430.3,512.0,5988394.0,67167.0,1003,C4_behind_hbm__qwen3_layer13__tR15__pfon__hop200
+qwen3_layer13,C4_behind_hbm,tR15 pf-on hop+50ns,15.0,on,964074,683.74,0.9891,0.9,0.2,147.2,35.9,1.0,1.0,0.656,0.9963,24580.0,0.0,214.0,304.0,6029707.0,64490.0,1092,C4_behind_hbm__qwen3_layer13__tR15__pfon__hop50
+qwen3_layer13,C4_behind_hbm,tR20 pf-on,20.0,on,1013170,718.56,1.0394,0.9,0.2,140.1,34.2,1.0,1.0,0.653,0.9931,24580.0,0.0,192.2,256.0,5949234.0,71012.0,679,C4_behind_hbm__qwen3_layer13__tR20__pfon
+qwen3_layer13,C4_behind_hbm,tR3 pf-on,3.0,on,905529,642.22,0.929,1.0,0.2,156.8,38.3,1.0,1.0,0.643,0.9983,24536.0,0.0,142.9,240.0,6015048.0,65022.0,843,C4_behind_hbm__qwen3_layer13__tR3__pfon
+qwen3_layer13,C4_behind_hbm,tR5 pf-on,5.0,on,904816,641.71,0.9283,1.0,0.2,156.9,38.3,1.0,1.0,0.645,0.9983,24551.0,0.0,146.5,240.0,6021478.0,66547.0,815,C4_behind_hbm__qwen3_layer13__tR5__pfon
+qwen3_layer13,C2_legacy_paper,tR15 pf-off,15.0,off,10365753,7351.6,10.6345,,,13.7,0.4,1.0,33.64,0.737,,,,,,,,2699,C2_legacy_paper__qwen3_layer13__tR15__pfoff
+qwen3_prologue,C1_hbm_only,-,,,100700,71.42,1.0,0.1,0.0,,,,,,,,,,,,,3,C1_hbm_only__qwen3_prologue
+qwen3_prologue,C2_hbf_dram,tR15 pf-off,15.0,off,121102,85.89,1.2026,0.0,0.0,0.0,0.0,1.0,1.0,0.992,,,,21248.0,21280.0,,,11,C2_hbf_dram__qwen3_prologue__tR15__pfoff
+qwen3_prologue,C2_hbf_dram,tR15 pf-on,15.0,on,115268,81.75,1.1447,0.0,0.0,0.1,0.0,1.0,1.0,1.0,0.0,1.0,0.0,15414.4,15440.0,,,9,C2_hbf_dram__qwen3_prologue__tR15__pfon
+qwen3_prologue,C3_iso_stack,tR15 pf-off,15.0,off,121110,85.89,1.2027,0.0,0.0,0.0,0.0,1.0,1.0,0.992,,,,21247.0,21280.0,,,11,C3_iso_stack__qwen3_prologue__tR15__pfoff
+qwen3_prologue,C3_iso_stack,tR15 pf-on,15.0,on,115273,81.75,1.1447,0.0,0.0,0.1,0.0,1.0,1.0,1.0,0.0,1.0,0.0,15410.2,15440.0,,,9,C3_iso_stack__qwen3_prologue__tR15__pfon
+qwen3_prologue,C3_iso_shoreline,tR15 pf-off,15.0,off,121149,85.92,1.2031,0.0,0.0,0.0,0.0,1.0,1.0,0.992,,,,21247.5,21280.0,,,11,C3_iso_shoreline__qwen3_prologue__tR15__pfoff
+qwen3_prologue,C3_iso_shoreline,tR15 pf-on,15.0,on,115309,81.78,1.1451,0.0,0.0,0.1,0.0,1.0,1.0,1.0,0.0,1.0,0.0,15404.8,15440.0,,,8,C3_iso_shoreline__qwen3_prologue__tR15__pfon
+qwen3_prologue,C4_behind_hbm,tR15 pf-off,15.0,off,121125,85.9,1.2028,0.0,0.0,0.0,0.0,1.0,1.0,0.992,,,,21260.7,21296.0,0.0,0.0,14,C4_behind_hbm__qwen3_prologue__tR15__pfoff
+qwen3_prologue,C4_behind_hbm,tR15 pf-on,15.0,on,115273,81.75,1.1447,0.0,0.0,0.1,0.0,1.0,1.0,1.0,0.0,1.0,0.0,15410.2,15440.0,0.0,0.0,11,C4_behind_hbm__qwen3_prologue__tR15__pfon
+qwen3_tail,C1_hbm_only,-,,,3008426,2133.64,1.0,291.8,71.2,,,,,,,,,,,,,45364,C1_hbm_only__qwen3_tail
+qwen3_tail,C2_hbf_dram,tR15 pf-on,15.0,on,2913219,2066.11,0.9684,0.2,0.1,301.2,73.5,1.0,1.0,0.725,1.0,151937.0,0.0,102.8,128.0,,,46134,C2_hbf_dram__qwen3_tail__tR15__pfon
+qwen3_tail,C3_iso_stack,tR15 pf-on,15.0,on,2912018,2065.26,0.968,0.2,0.0,301.3,73.6,1.0,1.0,0.727,1.0,151937.0,0.0,102.2,128.0,,,46744,C3_iso_stack__qwen3_tail__tR15__pfon
+qwen3_tail,C3_iso_shoreline,tR15 pf-on,15.0,on,4354465,3088.27,1.4474,0.1,0.1,201.5,98.4,1.0,1.0,0.953,0.9562,151937.0,0.0,1348.4,3424.0,,,47021,C3_iso_shoreline__qwen3_tail__tR15__pfon
+qwen3_tail,C4_behind_hbm,tR15 pf-on,15.0,on,2915831,2067.97,0.9692,0.2,0.0,300.9,73.5,1.0,1.0,0.727,1.0,151937.0,0.0,129.0,208.0,38961588.0,91723.0,46798,C4_behind_hbm__qwen3_tail__tR15__pfon
+vectoradd,C1_hbm_only,-,,,60214,42.7,1.0,168.5,41.1,,,,,,,,,,,,,92,C1_hbm_only__vectoradd
+vectoradd,C2_hbf_dram,tR15 pf-off,15.0,off,747752,530.32,12.4182,2.5,1.1,11.1,2.7,1.0,1.0,0.992,,,,20645.2,21344.0,,,808,C2_hbf_dram__vectoradd__tR15__pfoff
+vectoradd,C2_hbf_dram,tR15 pf-on,15.0,on,61122,43.35,1.0151,30.2,13.5,135.9,33.2,1.424,1.42,0.981,0.9573,1447.0,0.0,408.1,272.0,,,85,C2_hbf_dram__vectoradd__tR15__pfon
+vectoradd,C3_iso_stack,tR15 pf-off,15.0,off,748300,530.71,12.4273,2.5,0.6,11.1,2.7,1.001,1.0,0.992,,,,20737.5,21344.0,,,819,C3_iso_stack__vectoradd__tR15__pfoff
+vectoradd,C3_iso_stack,tR15 pf-on,15.0,on,60958,43.23,1.0124,30.3,7.4,136.2,33.3,1.425,1.42,0.981,0.9575,1449.0,0.0,402.4,256.0,,,86,C3_iso_stack__vectoradd__tR15__pfon
+vectoradd,C3_iso_shoreline,tR15 pf-off,15.0,off,749250,531.38,12.4431,2.5,1.2,11.1,5.4,1.001,1.0,0.992,,,,20417.1,21424.0,,,795,C3_iso_shoreline__vectoradd__tR15__pfoff
+vectoradd,C3_iso_shoreline,tR15 pf-on,15.0,on,87117,61.79,1.4468,21.2,10.4,95.2,46.5,1.425,1.43,0.987,0.9109,1455.0,0.0,1117.7,6160.0,,,43,C3_iso_shoreline__vectoradd__tR15__pfon
+vectoradd,C4_behind_hbm,tR15 pf-off,15.0,off,749119,531.29,12.4409,2.5,0.6,11.1,2.7,1.001,1.0,0.992,,,,20610.4,21360.0,131652.0,38805.0,753,C4_behind_hbm__vectoradd__tR15__pfoff
+vectoradd,C4_behind_hbm,tR15 pf-on,15.0,on,62259,44.16,1.034,29.7,7.2,133.4,32.6,1.424,1.42,0.982,0.9564,1445.0,0.0,476.4,976.0,533439.0,158267.0,97,C4_behind_hbm__vectoradd__tR15__pfon

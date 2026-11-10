@@ -1,0 +1,230 @@
+From b852ffe052b6fd5ea191c4d545fb3cf9660cec6f Mon Sep 17 00:00:00 2001
+From: Lakshay <b.lakshay@iitg.ac.in>
+Date: Wed, 28 Oct 2026 18:27:08 +0000
+Subject: [PATCH 6/8] HBF attach/prefetch fixes from code review
+
+- attach 1/2: one DRAM-sized return buffer per partition (192 x n_mem) so
+  replies held by one partition's PHY cannot stall the others
+- attach 2: write payload waits for PHY tokens; write acks are not PHY-gated
+- admission before the front-end drain (0 ns adds no tick)
+- prefetch hints: a page listed again keeps its earlier stream index
+- reject prefetcher + logic-die page cache, and -gpgpu_hbf_credits 0
+---
+ src/gpgpu-sim/gpu-sim.cc        |  4 ++++
+ src/gpgpu-sim/hbf_controller.cc | 13 +++++++++++-
+ src/gpgpu-sim/hbf_cube.cc       | 18 +++++++++++++---
+ src/gpgpu-sim/hbf_cube.h        |  1 +
+ src/gpgpu-sim/hbf_system.cc     | 10 +++++++++
+ src/gpgpu-sim/hbf_system.h      |  2 ++
+ src/gpgpu-sim/l2cache.cc        | 37 ++++++++++++++++++++-------------
+ 7 files changed, 67 insertions(+), 18 deletions(-)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index 26c33b04..2aee5c92 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -1699,6 +1699,10 @@ void memory_config::resolve_hbf_timings(double dram_freq_hz) {
+            dram_freq_hz / 1e6,
+            ramulator_enabled ? "Ramulator tCK" : "-gpgpu_clock_domains",
+            line.c_str());
++    if (hbf_attach >= 1 && hbf_credits == 0) {
++      fprintf(stderr, "HBF: -gpgpu_hbf_credits must be at least 1\n");
++      exit(1);
++    }
+     if (hbf_attach < 0 || hbf_attach > 2) {
+       fprintf(stderr, "HBF: -gpgpu_hbf_attach must be 0, 1 or 2\n");
+       exit(1);
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 655132d5..8ef43210 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -142,6 +142,12 @@ hbf_controller_t::hbf_controller_t(unsigned partition_id,
+       fprintf(stderr, "HBF: the prefetcher needs -gpgpu_hbf_mshr_enabled 1\n");
+       exit(1);
+     }
++    if (m_config->hbf_cache_entries > 0) {
++      // The LHB replaces the logic-die page cache; prefetches that hit the
++      // page cache would bypass the LHB bookkeeping.
++      fprintf(stderr, "HBF: the prefetcher needs -gpgpu_hbf_cache_entries 0\n");
++      exit(1);
++    }
+     unsigned lhb = m_config->hbf_lhb_pages;
+     if (lhb == 0) {
+       fprintf(stderr, "HBF: -gpgpu_hbf_prefetch_file needs -gpgpu_hbf_lhb_pages > 0\n");
+@@ -932,7 +938,12 @@ void hbf_controller_t::prefetch_enqueue(
+   if (!m_lhb.enabled()) return;
+   for (unsigned long long page : pages) {
+     m_pf_stream.push_back(page);
+-    m_pf_index[page] = m_pf_end_idx++;
++    // A page listed again (another kernel) keeps its earlier index until
++    // demand has passed it, so it cannot pull the demand front a kernel ahead.
++    auto idx = m_pf_index.find(page);
++    if (idx == m_pf_index.end() || idx->second < m_pf_demand_front)
++      m_pf_index[page] = m_pf_end_idx;
++    m_pf_end_idx++;
+   }
+   n_pf_enqueued += pages.size();
+ }
+diff --git a/src/gpgpu-sim/hbf_cube.cc b/src/gpgpu-sim/hbf_cube.cc
+index bd76142b..dd93a6a0 100644
+--- a/src/gpgpu-sim/hbf_cube.cc
++++ b/src/gpgpu-sim/hbf_cube.cc
+@@ -14,9 +14,16 @@ hbf_cube_t::hbf_cube_t(const memory_config *config, memory_stats_t *stats,
+                        unsigned long long stack_capacity)
+     : m_stack_config(new memory_config(*config)),
+       m_controller(NULL),
+-      m_return_capacity(config->gpgpu_dram_return_queue_size > 0
+-                            ? config->gpgpu_dram_return_queue_size
+-                            : 1),
++      // attach 0 keeps HBF-Sim's single 192-entry buffer.  With its own
++      // per-partition port (attach 1/2) each partition owns a DRAM-sized
++      // return buffer, so replies held back by one partition's PHY cannot
++      // stop collection for the others.
++      m_return_capacity((config->gpgpu_dram_return_queue_size > 0
++                             ? config->gpgpu_dram_return_queue_size
++                             : 1) *
++                        (config->hbf_attach >= 1 && config->m_n_mem > 0
++                             ? config->m_n_mem
++                             : 1)),
+       m_return_count(0),
+       m_trace_path(NULL),
+       m_stack_id(stack_id),
+@@ -97,6 +104,11 @@ bool hbf_cube_t::has_demand_work() const {
+   return m_controller->has_demand_work() || !m_returns.empty();
+ }
+ 
++mem_fetch *hbf_cube_t::peek_return_for(unsigned global_subpartition_id) const {
++  auto it = m_returns.find(global_subpartition_id);
++  return it == m_returns.end() || it->second.empty() ? NULL : it->second.front();
++}
++
+ bool hbf_cube_t::has_return_for(unsigned global_subpartition_id) const {
+   auto it = m_returns.find(global_subpartition_id);
+   return it != m_returns.end() && !it->second.empty();
+diff --git a/src/gpgpu-sim/hbf_cube.h b/src/gpgpu-sim/hbf_cube.h
+index 380bed59..97dc70c2 100644
+--- a/src/gpgpu-sim/hbf_cube.h
++++ b/src/gpgpu-sim/hbf_cube.h
+@@ -40,6 +40,7 @@ class hbf_cube_t {
+   // memory partitions.
+   mem_fetch *pop_return_for(unsigned global_subpartition_id);
+   bool has_return_for(unsigned global_subpartition_id) const;
++  mem_fetch *peek_return_for(unsigned global_subpartition_id) const;
+   void prefetch_enqueue(const std::vector<unsigned long long> &pages);
+   bool has_demand_work() const;
+ 
+diff --git a/src/gpgpu-sim/hbf_system.cc b/src/gpgpu-sim/hbf_system.cc
+index 6933bb98..ef8d3182 100644
+--- a/src/gpgpu-sim/hbf_system.cc
++++ b/src/gpgpu-sim/hbf_system.cc
+@@ -184,6 +184,16 @@ bool hbf_system_t::busy_demand() const {
+   return !m_original_addresses.empty();
+ }
+ 
++mem_fetch *hbf_system_t::peek_return_for(unsigned global_subpartition_id) const {
++  auto rr = m_return_rr_next.find(global_subpartition_id);
++  unsigned next = rr == m_return_rr_next.end() || rr->second >= m_num_stacks ? 0 : rr->second;
++  for (unsigned checked = 0; checked < m_num_stacks; ++checked) {
++    mem_fetch *r = m_stacks[(next + checked) % m_num_stacks]->peek_return_for(global_subpartition_id);
++    if (r) return r;
++  }
++  return NULL;
++}
++
+ bool hbf_system_t::has_return_for(unsigned global_subpartition_id) const {
+   for (const hbf_cube_t *stack : m_stacks)
+     if (stack->has_return_for(global_subpartition_id)) return true;
+diff --git a/src/gpgpu-sim/hbf_system.h b/src/gpgpu-sim/hbf_system.h
+index 65de2ae2..b9a2e98c 100644
+--- a/src/gpgpu-sim/hbf_system.h
++++ b/src/gpgpu-sim/hbf_system.h
+@@ -90,6 +90,8 @@ class hbf_system_t {
+   void cycle();
+   mem_fetch *pop_return_for(unsigned global_subpartition_id);
+   bool has_return_for(unsigned global_subpartition_id) const;
++  // The reply pop_return_for would return next (one stack: exact).
++  mem_fetch *peek_return_for(unsigned global_subpartition_id) const;
+   // Kernel launch hook for the prefetcher (uid = 1-based launch order).
+   void on_kernel_launch(unsigned kernel_uid);
+   // Busy with work a kernel must wait for (prefetch-only work excluded).
+diff --git a/src/gpgpu-sim/l2cache.cc b/src/gpgpu-sim/l2cache.cc
+index 979b86aa..cfd364d4 100644
+--- a/src/gpgpu-sim/l2cache.cc
++++ b/src/gpgpu-sim/l2cache.cc
+@@ -357,11 +357,16 @@ bool memory_partition_unit::hbf_direct_cycle() {
+     unsigned global_spid = m_id * n_sub + p;
+     if (m_sub_partition[p]->dram_L2_queue_full()) continue;
+     if (!m_hbf_system->has_return_for(global_spid)) continue;
++    mem_fetch *mf_return = NULL;
+     if (phy && (yield || m_phy_tokens <= 0.0)) {
+-      st.phy_hbf_stall_ticks++;
+-      continue;
++      // Only read replies carry data over the PHY; write acks pass.
++      mf_return = m_hbf_system->peek_return_for(global_spid);
++      if (mf_return && !mf_return->is_write()) {
++        st.phy_hbf_stall_ticks++;
++        continue;
++      }
+     }
+-    mem_fetch *mf_return = m_hbf_system->pop_return_for(global_spid);
++    mf_return = m_hbf_system->pop_return_for(global_spid);
+     assert(mf_return);
+     bool is_wb = mf_return->get_access_type() == L1_WRBK_ACC ||
+                  mf_return->get_access_type() == L2_WRBK_ACC;
+@@ -386,16 +391,7 @@ bool memory_partition_unit::hbf_direct_cycle() {
+     }
+   }
+ 
+-  // 2. Front-end latency queue -> HBF system (in order).
+-  while (!m_hbf_frontend_queue.empty() &&
+-         m_hbf_frontend_queue.front().ready_cycle <= now) {
+-    mem_fetch *mf = m_hbf_frontend_queue.front().req;
+-    if (m_hbf_system->full(mf->get_addr(), mf->is_write())) break;
+-    m_hbf_frontend_queue.pop_front();
+-    m_hbf_system->push(mf);
+-  }
+-
+-  // 3. Admission from the L2->HBF queues (one per sub-partition per tick).
++  // 2. Admission from the L2->HBF queues (one per sub-partition per tick).
+   bool admitted = false;
+   bool waiting = false;
+   for (unsigned p = 0; p < n_sub; ++p) {
+@@ -405,6 +401,8 @@ bool memory_partition_unit::hbf_direct_cycle() {
+       break;
+     }
+     mem_fetch *mf = m_sub_partition[p]->L2_hbf_queue_top();
++    // Write payload crosses the PHY on the way in: wait for tokens.
++    if (phy && mf->is_write() && m_phy_tokens <= 0.0) continue;
+     m_sub_partition[p]->L2_hbf_queue_pop();
+     if (phy && mf->is_write()) {
+       // write payload crosses the PHY on the way in
+@@ -421,6 +419,15 @@ bool memory_partition_unit::hbf_direct_cycle() {
+     m_hbf_frontend_queue.push_back(d);
+     admitted = true;
+   }
++  // 3. Front-end latency queue -> HBF system (in order).
++  while (!m_hbf_frontend_queue.empty() &&
++         m_hbf_frontend_queue.front().ready_cycle <= now) {
++    mem_fetch *mf = m_hbf_frontend_queue.front().req;
++    if (m_hbf_system->full(mf->get_addr(), mf->is_write())) break;
++    m_hbf_frontend_queue.pop_front();
++    m_hbf_system->push(mf);
++  }
++
+   if (waiting) st.credit_block_ticks++;
+   if (m_hbf_credits_used > st.max_credits_used)
+     st.max_credits_used = m_hbf_credits_used;
+@@ -1367,7 +1374,9 @@ void l2_cache::cycle() {
+       // for writes, a seperate WRITE_FORWARD is generated
+       // always write to local
+       // The L2's memory port is an L2interface; ask it about this request's
+-      // tier so a full L2->HBF queue cannot block HBM misses (attach 1/2).
++      // tier (attach 1/2).  The miss queue is still one FIFO, so an HBF miss
++      // at its head waits for room in the L2->HBF queue; that only happens
++      // when the partition runs out of HBF credits ('HBF Credit Block Ticks').
+       const L2interface *l2if = dynamic_cast<const L2interface *>(m_memport);
+       bool port_full = l2if ? l2if->full(mf)
+                             : m_memport->full(mf->size(), mf->get_is_write());
+-- 
+2.43.0
+

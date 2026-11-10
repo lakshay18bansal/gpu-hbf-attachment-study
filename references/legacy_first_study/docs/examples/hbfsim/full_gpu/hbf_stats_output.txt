@@ -1,0 +1,54 @@
+HBF Stacks:             1
+HBF Stack Map:          page-interleave
+HBF Total Capacity:     549755813888 bytes
+HBF Per-Stack Capacity: 549755813888 bytes
+HBF Channels Per Stack: 4
+--------- HBF Stack 0 (routed=158 completed=158) ---------
+HBF DRAM Clock:         850.0 MHz (all HBF timers count DRAM-clock ticks)
+HBF Sub-arrays:         32
+HBF Logical Cube Channels: 4 (global namespace)
+HBF Page Reads:         2
+HBF Page Programs:      3
+HBF Block Erases:       0
+HBF Partial Page Programs: 3 (compatibility policy)
+HBF Incomplete Page Errors: 0 (strict policy)
+HBF Write Coverage Errors: 0
+HBF Mapping Errors:        0
+HBF Host Write Bytes:      1984
+HBF Unique Write Bytes:    1984
+HBF Media Program Bytes:   12288
+HBF Padding Bytes:       10304
+HBF Write Traffic Ratio:  6.1935
+HBF Write Timeout Flushes: 0 (successful entries)
+HBF Idle Drain Events:     2 (at least one entry flushed)
+HBF Total Requests:     158
+HBF MSHR Hits:          91 (57.6% coalesced)
+HBF Bytes Read:         3072
+HBF Bytes Written:      1984
+HBF Read Policy:        demand (window=0 ticks threshold=4096 bytes)
+HBF Requested Read Bytes: 3072
+HBF Media Read Bytes:     8192
+HBF Read Amplification:   2.6667
+HBF Aggregation Wait:      0 ticks
+HBF First-Request Latency: 1087 core cycles (8 pages)
+HBF Avg Op Latency:     53 core cycles (0.05 us)
+HBF NAND Timing:        tR=20 ticks (0.02 us)  tPROG=40 ticks (0.05 us)  tBERS=80 ticks (0.09 us)
+HBF Max Queue Depth:    2
+HBF Cycles Active:      607
+HBF Channels:           4 (map mode interleave, per-channel BW 192 GB/s, write limit 64)
+HBF Read Latency:       avg=54 max=71 core cycles (96 reqs)
+HBF Scheduler:          FCFS (drain windows=0, reads deferred in windows=0)
+HBF Drain Read Breaks:  0
+HBF Channel Array-Busy: min=0.000% avg=0.584% max=1.460% imbalance=2.5000 (ticks with >=1 busy sub-array / 6849 elapsed DRAM ticks)
+HBF Capacity Usage:    2 live / 134217728 configured pages (0.00%)
+HBF Capacity Bytes:    8192 live / 549755813888 configured bytes
+HBF Allocated Metadata: 128 pages (524288 bytes)
+HBF Logical Pages:     2 live mappings
+HBF Subarray Spread:   2 / 32 subarrays hold data
+HBF Subarray Usage:    empty=30 low=2 mid=0 high=0 full=0
+HBF Active Sub-arrays:  0 / 32
+HBF Page Buffer Hits:   0 (0.0%)
+HBF Page Cache:         enabled (0 entries, hits=3 misses=2)
+HBF Page Cache Hit Rate: 60.0%  Evictions: 0
+----------------------------Interconnect-DETAILS--------------------------------
+----------------------------END-of-Interconnect-DETAILS-------------------------

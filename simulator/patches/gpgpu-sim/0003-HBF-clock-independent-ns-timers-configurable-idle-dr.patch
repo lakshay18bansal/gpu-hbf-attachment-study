@@ -1,0 +1,240 @@
+From 7b7aec0bd05821af765a5b60a75bb9aac1155416 Mon Sep 17 00:00:00 2001
+From: Lakshay <b.lakshay@iitg.ac.in>
+Date: Wed, 28 Oct 2026 17:17:23 +0000
+Subject: [PATCH 3/8] HBF: clock-independent ns timers, configurable idle-drain
+ quiet period, array-busy stat
+
+-gpgpu_hbf_<timer>_ns overrides each tick-valued HBF timer and is converted
+with the run's DRAM clock (Ramulator's tCK when Ramulator is on), so tR no
+longer changes when the DRAM model changes. get_dram_freq() returns double.
+The per-channel utilisation stat now divides by elapsed DRAM ticks.
+---
+ src/gpgpu-sim/gpu-sim.cc        | 89 +++++++++++++++++++++++++++++++++
+ src/gpgpu-sim/gpu-sim.h         | 24 ++++++++-
+ src/gpgpu-sim/hbf_controller.cc | 24 ++++++---
+ 3 files changed, 129 insertions(+), 8 deletions(-)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index 6bca127e..b8e99413 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -545,6 +545,46 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          &hbf_trace_level,
+                          "Trace level: 0=off, 1=lifecycle, 2=flush each event (default 0)",
+                          "0");
++  option_parser_register(opp, "-gpgpu_hbf_idle_drain_quiet", OPT_UINT32,
++                         &hbf_idle_drain_quiet,
++                         "Quiet period before an idle device drains its write buffer, in DRAM ticks (default 100)",
++                         "100");
++
++  // Clock-independent HBF timers (ns).  A value > 0 overrides the matching
++  // tick option and is converted with the run's DRAM clock; 0 keeps ticks.
++  option_parser_register(opp, "-gpgpu_hbf_tR_ns", OPT_DOUBLE, &hbf_tR_ns,
++                         "NAND page read latency in ns; overrides -gpgpu_hbf_tR when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_tPROG_ns", OPT_DOUBLE, &hbf_tPROG_ns,
++                         "NAND page program latency in ns; overrides -gpgpu_hbf_tPROG when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_tBERS_ns", OPT_DOUBLE, &hbf_tBERS_ns,
++                         "NAND block erase latency in ns; overrides -gpgpu_hbf_tBERS when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_buffer_hit_latency_ns", OPT_DOUBLE,
++                         &hbf_buffer_hit_latency_ns,
++                         "Page buffer hit latency in ns; overrides -gpgpu_hbf_buffer_hit_latency when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_cache_hit_latency_ns", OPT_DOUBLE,
++                         &hbf_cache_hit_latency_ns,
++                         "Page cache hit latency in ns; overrides -gpgpu_hbf_cache_hit_latency when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_write_agg_timeout_ns", OPT_DOUBLE,
++                         &hbf_write_agg_timeout_ns,
++                         "4KiB write aggregation deadline in ns; overrides -gpgpu_hbf_write_agg_timeout when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_write_drain_maxwait_ns", OPT_DOUBLE,
++                         &hbf_write_drain_maxwait_ns,
++                         "Max time a write window may delay reads, in ns; overrides -gpgpu_hbf_write_drain_maxwait when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_read_agg_window_ns", OPT_DOUBLE,
++                         &hbf_read_agg_window_ns,
++                         "Read aggregation window in ns; overrides -gpgpu_hbf_read_agg_window when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_idle_drain_quiet_ns", OPT_DOUBLE,
++                         &hbf_idle_drain_quiet_ns,
++                         "Idle write-drain quiet period in ns; overrides -gpgpu_hbf_idle_drain_quiet when > 0 (default 0)",
++                         "0");
+ 
+   m_address_mapping.addrdec_setoption(opp);
+ }
+@@ -1568,6 +1608,55 @@ void gpgpu_sim_config::init_clock_domains(void) {
+          core_period, icnt_period, l2_period, dram_period);
+ }
+ 
++// Convert an HBF ns timer to DRAM ticks of the run's DRAM clock.
++static unsigned hbf_ns_to_ticks(const char *name, double ns,
++                                double dram_freq_hz) {
++  double ticks = ns * dram_freq_hz * 1e-9;
++  if (ticks > 4294967295.0) {
++    fprintf(stderr, "HBF: %s_ns=%.1f is %.0f DRAM ticks, above UINT_MAX\n",
++            name, ns, ticks);
++    exit(1);
++  }
++  unsigned long long t = llround(ticks);
++  return t > 0 ? (unsigned)t : 1;  // a positive time is never zero ticks
++}
++
++void memory_config::resolve_hbf_timings(double dram_freq_hz) {
++  hbf_dram_freq_hz = dram_freq_hz;
++  struct {
++    const char *name;
++    double ns;
++    unsigned *ticks;
++  } timers[] = {
++      {"tR", hbf_tR_ns, &hbf_tR},
++      {"tPROG", hbf_tPROG_ns, &hbf_tPROG},
++      {"tBERS", hbf_tBERS_ns, &hbf_tBERS},
++      {"buffer_hit_latency", hbf_buffer_hit_latency_ns,
++       &hbf_buffer_hit_latency},
++      {"cache_hit_latency", hbf_cache_hit_latency_ns, &hbf_cache_hit_latency},
++      {"write_agg_timeout", hbf_write_agg_timeout_ns, &hbf_write_agg_timeout},
++      {"write_drain_maxwait", hbf_write_drain_maxwait_ns,
++       &hbf_write_drain_maxwait},
++      {"read_agg_window", hbf_read_agg_window_ns, &hbf_read_agg_window},
++      {"idle_drain_quiet", hbf_idle_drain_quiet_ns, &hbf_idle_drain_quiet},
++  };
++  std::string line;
++  char buf[160];
++  for (auto &t : timers) {
++    bool from_ns = t.ns > 0.0;
++    if (from_ns) *t.ticks = hbf_ns_to_ticks(t.name, t.ns, dram_freq_hz);
++    // "(ns)" marks a value set by the _ns option, "(ticks)" by the tick one.
++    snprintf(buf, sizeof(buf), " %s=%u ticks/%.1f ns%s", t.name, *t.ticks,
++             *t.ticks * 1e9 / dram_freq_hz, from_ns ? "(ns)" : "(ticks)");
++    line += buf;
++  }
++  if (hbf_enabled)
++    printf("GPGPU-Sim uArch: HBF timings @ DRAM clock %.3f MHz (%s):%s\n",
++           dram_freq_hz / 1e6,
++           ramulator_enabled ? "Ramulator tCK" : "-gpgpu_clock_domains",
++           line.c_str());
++}
++
+ void gpgpu_sim::reinit_clock_domains(void) {
+   core_time = 0;
+   dram_time = 0;
+diff --git a/src/gpgpu-sim/gpu-sim.h b/src/gpgpu-sim/gpu-sim.h
+index 90538a01..773d7b4a 100644
+--- a/src/gpgpu-sim/gpu-sim.h
++++ b/src/gpgpu-sim/gpu-sim.h
+@@ -557,6 +557,25 @@ class memory_config {
+   int hbf_l2_policy;                 // 0=bypass (default), 1=validated cache
+   char *hbf_trace_file;               // empty disables CSV trace
+   int hbf_trace_level;               // 0=off, 1=lifecycle, 2=flush each event
++  unsigned hbf_idle_drain_quiet;     // idle-drain quiet period in DRAM ticks (default 100)
++
++  // Clock-independent HBF timers.  Every tick-valued HBF timer above has an
++  // -gpgpu_hbf_<name>_ns twin; a value > 0 overrides the tick option and is
++  // converted with the DRAM clock actually used by the run (with Ramulator
++  // on, Ramulator's controller tick, see init_clock_domains).  Resolved once
++  // by resolve_hbf_timings() before any HBF stack is constructed, so every
++  // consumer (sub-arrays, FTL GC, controller) sees the converted ticks.
++  double hbf_tR_ns;
++  double hbf_tPROG_ns;
++  double hbf_tBERS_ns;
++  double hbf_buffer_hit_latency_ns;
++  double hbf_cache_hit_latency_ns;
++  double hbf_write_agg_timeout_ns;
++  double hbf_write_drain_maxwait_ns;
++  double hbf_read_agg_window_ns;
++  double hbf_idle_drain_quiet_ns;
++  double hbf_dram_freq_hz;           // DRAM clock the HBF ticks refer to
++  void resolve_hbf_timings(double dram_freq_hz);
+ 
+   // Check if an address falls in the HBF range
+   bool is_hbf_addr(new_addr_type addr) const {
+@@ -588,6 +607,8 @@ class gpgpu_sim_config : public power_config,
+     ptx_set_tex_cache_linesize(m_shader_config.m_L1T_config.get_line_sz());
+     m_memory_config.init(&m_shader_config);
+     init_clock_domains();
++    // HBF ns timers need the final DRAM clock (Ramulator may override it).
++    m_memory_config.resolve_hbf_timings(dram_freq);
+     power_config::init();
+     Trace::init();
+ 
+@@ -608,7 +629,8 @@ class gpgpu_sim_config : public power_config,
+     m_valid = true;
+   }
+   unsigned get_core_freq() const { return core_freq; }
+-  unsigned get_dram_freq() const { return dram_freq; }
++  // double: HBM3/Ramulator clocks above 4.29 GHz overflow an unsigned (Hz).
++  double get_dram_freq() const { return dram_freq; }
+   unsigned num_shader() const { return m_shader_config.num_shader(); }
+   unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
+   unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 1f2fc9a2..4cc2a493 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -804,7 +804,8 @@ void hbf_controller_t::cycle() {
+   // Step 5: Idle drain (v0.4) — when the device has nothing in flight and
+   // no write data has arrived for a quiet period, flush buffered pages
+   // so tail writes are not silently dropped at kernel end. The quiet period
+-  // (100 ticks) preserves 4KiB write aggregation: a flush right after the
++  // (-gpgpu_hbf_idle_drain_quiet, default 100 ticks; formerly hard-coded)
++  // preserves 4KiB write aggregation: a flush right after the
+   // FIRST store of a page would split the page into a partial program and
+   // re-open the double-flush hazard (v0.4.0 bug).
+   if (!m_write_buffer.empty() && m_mshr.empty() && m_mshr_queue.empty()) {
+@@ -812,7 +813,7 @@ void hbf_controller_t::cycle() {
+     for (const auto &kv : m_write_buffer)
+       if (kv.second.last_arrival_tick > last_arrival)
+         last_arrival = kv.second.last_arrival_tick;
+-    if (current_tick - last_arrival > 100) {
++    if (current_tick - last_arrival > m_config->hbf_idle_drain_quiet) {
+       if (flush_write_buffer() > 0) n_idle_drain_flushes++;
+     }
+   }
+@@ -1091,6 +1092,13 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+           m_config->hbf_max_outstanding_writes);
+   unsigned long long sim_cycles =
+       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  // n_active_ticks counts DRAM ticks in which a channel had at least one
++  // busy sub-array.  The old denominator was core cycles, which printed
++  // >100% whenever the DRAM clock is faster than the core clock (e.g.
++  // 1512 vs 1410 MHz in qwen3.config).  Divide by the DRAM ticks elapsed
++  // in the simulated time instead.
++  double elapsed_dram_ticks =
++      (double)sim_cycles * m_dram_freq_mhz / m_core_freq_mhz;
+   double min_channel_util = 1.0e30;
+   double max_channel_util = 0.0;
+   double sum_channel_util = 0.0;
+@@ -1112,11 +1120,11 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+             ch->n_requests, ch->n_page_reads, ch->n_page_programs,
+             ch->n_block_erases, ch->n_outstanding_writes,
+             ch->n_writes_deferred, ch->n_transfer_stall_ticks);
+-    double util = sim_cycles > 0
+-                      ? 100.0 * (double)ch->n_active_ticks / sim_cycles
++    double util = elapsed_dram_ticks > 0.0
++                      ? 100.0 * (double)ch->n_active_ticks / elapsed_dram_ticks
+                       : 0.0;
+     fprintf(simFile,
+-            "    active_ticks=%llu util=%.3f%% transfer_bytes=%llu\n",
++            "    active_ticks=%llu busy=%.3f%% transfer_bytes=%llu\n",
+             ch->n_active_ticks, util, ch->n_transfer_bytes);
+     if (util < min_channel_util) min_channel_util = util;
+     if (util > max_channel_util) max_channel_util = util;
+@@ -1127,8 +1135,10 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+     double imbalance = avg > 0.0 ? (max_channel_util - min_channel_util) / avg
+                                  : 0.0;
+     fprintf(simFile,
+-            "HBF Channel Utilization: min=%.3f%% avg=%.3f%% max=%.3f%% imbalance=%.4f\n",
+-            min_channel_util, avg, max_channel_util, imbalance);
++            "HBF Channel Array-Busy: min=%.3f%% avg=%.3f%% max=%.3f%% imbalance=%.4f "
++            "(ticks with >=1 busy sub-array / %.0f elapsed DRAM ticks)\n",
++            min_channel_util, avg, max_channel_util, imbalance,
++            elapsed_dram_ticks);
+   }
+ 
+   if (m_ftl) {
+-- 
+2.43.0
+

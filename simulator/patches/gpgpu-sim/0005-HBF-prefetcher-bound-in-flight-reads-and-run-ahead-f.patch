@@ -1,0 +1,172 @@
+From db7c5cc996dff62ff709608a2c18e42c49244353 Mon Sep 17 00:00:00 2001
+From: Lakshay <b.lakshay@iitg.ac.in>
+Date: Wed, 28 Oct 2026 18:03:20 +0000
+Subject: [PATCH 5/8] HBF prefetcher: bound in-flight reads and run-ahead, fill
+ LHB on demand reads
+
+The window now limits prefetch reads in flight (BW x tR pages) and the
+prefetcher stays within one LHB capacity of the furthest demanded point of
+the hint stream, so prefetched pages that are never requested from HBF
+(e.g. served by the L2) no longer stall it. Demand-fetched pages also enter
+the LHB.
+---
+ src/gpgpu-sim/hbf_controller.cc | 51 ++++++++++++++++++++++++---------
+ src/gpgpu-sim/hbf_controller.h  | 15 ++++++++--
+ 2 files changed, 49 insertions(+), 17 deletions(-)
+
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 7ee44314..655132d5 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -134,6 +134,8 @@ hbf_controller_t::hbf_controller_t(unsigned partition_id,
+   m_pf_window = 0;
+   m_pf_undemanded = 0;
+   m_pf_only_entries = 0;
++  m_pf_inflight = 0;
++  m_pf_next_idx = m_pf_end_idx = m_pf_demand_front = 0;
+   m_lhb_hit_ticks = m_config->hbf_lhb_hit_latency > 0 ? m_config->hbf_lhb_hit_latency : 1;
+   if (m_config->hbf_prefetch_file && m_config->hbf_prefetch_file[0] != '\0') {
+     if (!m_config->hbf_mshr_enabled) {
+@@ -382,6 +384,13 @@ void hbf_controller_t::push(mem_fetch *data) {
+ 
+   n_requested_read_bytes += data->get_data_size();
+ 
++  // Demand progress along the prefetch stream (bounds the prefetcher's run-ahead).
++  if (m_lhb.enabled()) {
++    auto idx = m_pf_index.find(page_addr);
++    if (idx != m_pf_index.end() && idx->second + 1 > m_pf_demand_front)
++      m_pf_demand_front = idx->second + 1;
++  }
++
+   // Reads: flush any buffered writes to same page first (read-after-write)
+   auto wb_it = m_write_buffer.find(page_addr);
+   if (wb_it != m_write_buffer.end()) {
+@@ -751,16 +760,23 @@ void hbf_controller_t::cycle() {
+   // pending.size() is larger than the return queue capacity.
+   for (auto it = m_mshr.begin(); it != m_mshr.end();) {
+     if (!it->second.delivery_pending) { ++it; continue; }
+-    if (it->second.is_prefetch && it->second.fill_cache_on_deliver) {
+-      // A prefetch read finished: the page enters the LHB.
+-      it->second.fill_cache_on_deliver = false;
+-      unsigned wasted = m_lhb.insert(it->second.phys_page,
+-                                     it->second.pf_demanded, current_tick);
++    if (m_lhb.enabled() && it->second.fill_cache_on_deliver &&
++        !it->second.lhb_filled) {
++      // A NAND read finished: the page enters the LHB (prefetched pages as
++      // undemanded unless a demand joined; demand-fetched pages as demanded,
++      // so later sectors and the prefetcher find them there).
++      it->second.lhb_filled = true;
++      bool demanded = !it->second.is_prefetch || it->second.pf_demanded;
++      unsigned wasted = m_lhb.insert(it->second.phys_page, demanded, current_tick);
+       n_pf_wasted += wasted;
+       assert(m_pf_undemanded >= wasted);
+       m_pf_undemanded -= wasted;
+-      if (!it->second.pf_demanded) {
+-        // Still nobody waiting: the LHB copy now carries the window credit.
++      if (it->second.is_prefetch) {
++        assert(m_pf_inflight > 0);
++        m_pf_inflight--;
++      }
++      if (it->second.is_prefetch && !it->second.pf_demanded) {
++        // Nobody waiting: the page now lives only in the LHB.
+         assert(m_pf_only_entries > 0);
+         m_pf_only_entries--;
+         it = m_mshr.erase(it);
+@@ -914,23 +930,29 @@ void hbf_controller_t::cycle() {
+ void hbf_controller_t::prefetch_enqueue(
+     const std::vector<unsigned long long> &pages) {
+   if (!m_lhb.enabled()) return;
+-  m_pf_stream.insert(m_pf_stream.end(), pages.begin(), pages.end());
++  for (unsigned long long page : pages) {
++    m_pf_stream.push_back(page);
++    m_pf_index[page] = m_pf_end_idx++;
++  }
+   n_pf_enqueued += pages.size();
+ }
+ 
+-// Streaming prefetcher: keep up to m_pf_window prefetched-but-undemanded
+-// pages in flight or resident.  Prefetch reads are scheduled after demand
+-// reads (schedule_operations) and leave room in the MSHR for demand.
++// Streaming prefetcher (see hbf_controller.h).  Prefetch reads are scheduled
++// after demand reads (schedule_operations) and leave room in the MSHR for
++// demand.
+ void hbf_controller_t::issue_prefetches() {
+   if (!m_lhb.enabled()) return;
+   unsigned long long current_cycle =
+       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
+   unsigned max_q = m_config->hbf_max_outstanding;
+   unsigned pf_cap = max_q == 0 ? ~0u : max_q - max_q / 4;
+-  while (!m_pf_stream.empty() && m_pf_undemanded < m_pf_window &&
++  const unsigned long long run_ahead = m_config->hbf_lhb_pages;
++  while (!m_pf_stream.empty() && m_pf_inflight < m_pf_window &&
++         m_pf_next_idx < m_pf_demand_front + run_ahead &&
+          m_mshr.size() + m_write_buffer.size() < pf_cap) {
+     unsigned long long page = m_pf_stream.front();
+     m_pf_stream.pop_front();
++    m_pf_next_idx++;
+     if (m_mshr.count(page) || m_lhb.contains(page)) {
+       n_pf_skipped++;
+       continue;
+@@ -959,6 +981,7 @@ void hbf_controller_t::issue_prefetches() {
+     m_mshr_queue.push_back(page);
+     m_pf_undemanded++;
+     m_pf_only_entries++;
++    m_pf_inflight++;
+   }
+ }
+ 
+@@ -1340,9 +1363,9 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+     fprintf(simFile, "HBF Prefetch: window=%u lhb=%u pages lhb_hit=%u ticks\n",
+             m_pf_window, m_config->hbf_lhb_pages, m_lhb_hit_ticks);
+     fprintf(simFile, "HBF Prefetch Pages: enqueued=%llu issued=%llu skipped=%llu "
+-            "useful=%llu wasted=%llu merges=%llu left_undemanded=%u stream_left=%zu\n",
++            "useful=%llu wasted=%llu merges=%llu left_undemanded=%u stream_left=%zu inflight=%u\n",
+             n_pf_enqueued, n_pf_issued, n_pf_skipped, n_pf_useful, n_pf_wasted,
+-            n_pf_merges, m_pf_undemanded, m_pf_stream.size());
++            n_pf_merges, m_pf_undemanded, m_pf_stream.size(), m_pf_inflight);
+     fprintf(simFile, "HBF LHB Hits: pages=%llu requests=%llu (%.2f%% of read requests)\n",
+             n_lhb_page_hits, n_lhb_request_hits,
+             n_read_requests ? 100.0 * n_lhb_request_hits / n_read_requests : 0.0);
+diff --git a/src/gpgpu-sim/hbf_controller.h b/src/gpgpu-sim/hbf_controller.h
+index 2405626f..7833e8db 100644
+--- a/src/gpgpu-sim/hbf_controller.h
++++ b/src/gpgpu-sim/hbf_controller.h
+@@ -410,6 +410,7 @@ class hbf_controller_t {
+     bool first_delivery_recorded;    // page-level delivery stats count once
+     bool is_prefetch;                // issued by the prefetcher (no requester at issue)
+     bool pf_demanded;                // a demand request has joined this prefetch
++    bool lhb_filled;                 // page already inserted into the LHB
+     unsigned long long issue_cycle;   // when operation was issued to sub-array
+     unsigned long long first_arrival_cycle;
+     unsigned long long first_arrival_tick;
+@@ -430,9 +431,12 @@ class hbf_controller_t {
+   // Logic-die page cache (LRU SRAM), distinct from CUDA Shared Memory.
+   hbf_page_cache_t *m_page_cache;
+ 
+-  // Prefetcher + LHB (-gpgpu_hbf_prefetch_file).  m_pf_undemanded counts
+-  // prefetched pages (in flight or resident) that no demand has touched yet;
+-  // the prefetcher keeps it at or below m_pf_window.
++  // Prefetcher + LHB (-gpgpu_hbf_prefetch_file): a streaming buffer over the
++  // hint stream.  At most m_pf_window prefetch reads are in flight (BW x tR of
++  // pages: Little's law), and the prefetcher runs at most one LHB capacity
++  // ahead of the furthest point demand has reached in the stream, so pages it
++  // left behind (e.g. served by the L2 and never requested) stop holding it
++  // back and simply age out of the LHB.  m_pf_undemanded is statistics only.
+   hbf_lhb_t m_lhb;
+   std::deque<unsigned long long> m_pf_stream;
+   unsigned m_pf_window;
+@@ -440,6 +444,11 @@ class hbf_controller_t {
+   unsigned m_lhb_hit_ticks;
+   void issue_prefetches();
+   unsigned m_pf_only_entries;          // MSHR entries with no requester yet
++  unsigned m_pf_inflight;              // prefetch reads queued or on a sub-array
++  unsigned long long m_pf_next_idx;    // stream index of m_pf_stream.front()
++  unsigned long long m_pf_end_idx;     // stream index after the last enqueued page
++  unsigned long long m_pf_demand_front;  // 1 + furthest stream index demanded
++  std::unordered_map<unsigned long long, unsigned long long> m_pf_index;  // page -> stream index
+   unsigned long long n_pf_enqueued;
+   unsigned long long n_pf_issued;     // NAND reads started by the prefetcher
+   unsigned long long n_pf_skipped;    // already resident / in flight
+-- 
+2.43.0
+

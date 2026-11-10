@@ -1,0 +1,25 @@
+# C4: H3 (Ha, Kim, Kim, IEEE CAL 2026, Fig. 3). The GPU is connected only to the HBM and sees
+# one address space; it does not know the HBF tier exists.
+#   GPU: every L2 miss takes the partition's L2->DRAM queue and DRAM credits (257, shared by
+#        HBM and HBF requests), HBF data is cached in the L2 like any data.
+#   GPU<->HBM link (BW1): per partition one token bucket of 48.384 GB/s (= the HBM2E channel,
+#        H3's BW1 = BW2) charged by write payload going down and read data coming up, HBM and
+#        HBF alike.
+#   HBM base die: ingress FIFO from the link, address decoder & router -> HBM controller
+#        (Ramulator) or D2D link -> HBF base die (HBF-Sim's controller and NAND, unchanged).
+#        Every HBF request pays the GPU front end (134.75 ns, as HBM requests do); each NAND
+#        operation also pays the D2D round trip (BW3 hop + router), 10 ns.
+#   LHB (H3 section III-C) in the HBM base die, filled ahead of use from per-kernel hints;
+#        LHB hits do not cross the D2D link. Added by the runner (prefetch on).
+-gpgpu_hbf_enabled 1
+-gpgpu_hbf_attach 3
+-gpgpu_hbf_l2_policy 1
+-gpgpu_hbf_phy_gbps 48.384
+-gpgpu_hbf_h3_queue_size 64
+-gpgpu_hbf_d2d_hop_ns 10
+# GPU MC + link to the HBM base die: the same 134.75 ns front end as every HBM request (HBF-Sim's
+# -dram_latency 190 core cycles at 1410 MHz). Paid by every HBF request, LHB hits included; the
+# 10 ns D2D hop only by NAND operations.
+-gpgpu_hbf_frontend_latency_ns 134.751773
+# LHB hit latency = HBF-Sim's logic-die page-cache hit latency (50 ticks @ 1512 MHz).
+-gpgpu_hbf_lhb_hit_latency_ns 33.0688

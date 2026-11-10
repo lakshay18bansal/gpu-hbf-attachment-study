@@ -1,0 +1,7 @@
+config ./common/memory/hbm3_slice8.yaml: 8 channel(s), HBM3, tCK 0.3120 ns, tx 32 B, front-end latency 52.493 ns = 168 ticks
+ticks simulated 12277 (3830.4 ns); requests 5 (R 4, W 1), completed 5, send() rejections 0
+read latency incl. front-end: avg 272.5 ticks (85.02 ns), max 326 ticks
+write 'latency' incl. front-end (callback fires when WR issues): avg 250.0 ticks (78.00 ns)
+achieved bandwidth 0.04 GB/s over the run
+  ch0  ACT 3 PRE 2 RD 3 WR 1 REF 0
+  ch3  ACT 1 PRE 0 RD 1 WR 0 REF 0

@@ -1,0 +1,3 @@
+# C1: GPU + HBM only (Ramulator HBM2E, 387 GB/s). The HBF tier is switched off, so the weight
+# addresses at 256 GiB in the trace are ordinary HBM addresses.
+-gpgpu_hbf_enabled 0

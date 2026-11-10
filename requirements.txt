@@ -1,0 +1,5 @@
+# Python >= 3.10. The run scripts, the Ramulator config export (simulator/ramulator2/python) and the
+# validation checker use only the standard library; PyYAML is Ramulator's declared dependency.
+pyyaml>=6.0
+# Optional: plots of the legacy first study (references/legacy_first_study/tools/report.py)
+matplotlib>=3.5

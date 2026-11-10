@@ -1,0 +1,186 @@
+{
+ "_doc": "Inputs of tools/project_model.py. Per-package numbers for a B200-class GPU (H3 and FLINT use a B200: 8 HBM3E stacks, 24 GB and 1 TB/s each). HBF stack: 512 GiB, read bandwidth = HBM stack bandwidth (H3; 2609.39131 Table 1). Costs are analyst assumptions (Goldman Sachs via 404K Research, docs/research/h3_and_device_params.md section 3.3), not vendor prices. Efficiencies (sustained/peak) are overwritten by tools/project_model.py from simulation results when --results is given.",
+ "gpu": {
+  "name": "B200-class",
+  "bf16_tflops": 2250,
+  "fp8_tflops": 4500
+ },
+ "stack": {
+  "hbm": {
+   "gb": 24,
+   "tbps": 1.0,
+   "usd_per_gb": 15.0
+  },
+  "hbf": {
+   "gb": 549.76,
+   "tbps": 1.0,
+   "usd_per_gb": 1.75
+  },
+  "gddr7_near": {
+   "gb": 48,
+   "tbps": 1.5,
+   "usd_per_gb": 8.0,
+   "_doc": "C2 near tier for the whole package (HBF Sucks HBF-1: GDDR7 48 GB); cost assumption"
+  }
+ },
+ "configs": {
+  "C1_hbm_only": {
+   "hbm_stacks": 8,
+   "hbf_stacks": 0,
+   "near": "hbm",
+   "hbf_shares_hbm_phy": false
+  },
+  "C2_hbf_dram": {
+   "hbm_stacks": 0,
+   "hbf_stacks": 8,
+   "near": "gddr7_near",
+   "hbf_shares_hbm_phy": false
+  },
+  "C3_iso_stack": {
+   "hbm_stacks": 8,
+   "hbf_stacks": 8,
+   "near": "hbm",
+   "hbf_shares_hbm_phy": false,
+   "_doc": "needs 2x the GPU shoreline"
+  },
+  "C3_iso_shoreline": {
+   "hbm_stacks": 4,
+   "hbf_stacks": 4,
+   "near": "hbm",
+   "hbf_shares_hbm_phy": false
+  },
+  "C4_behind_hbm": {
+   "hbm_stacks": 8,
+   "hbf_stacks": 8,
+   "near": "hbm",
+   "hbf_shares_hbm_phy": true
+  }
+ },
+ "efficiency_default": {
+  "hbm": 0.7,
+  "near": 0.7,
+  "hbf": 0.7,
+  "_doc": "FLINT: Ramulator-calibrated HBM sustained/peak 67.8-69.9%"
+ },
+ "models": {
+  "Qwen3-1.7B": {
+   "params_b": 2.03,
+   "active_b": 2.03,
+   "bytes_per_param": 2,
+   "layers": 28,
+   "kv_heads": 8,
+   "head_dim": 128,
+   "kv_bytes": 2
+  },
+  "Qwen3-32B": {
+   "params_b": 32.8,
+   "active_b": 32.8,
+   "bytes_per_param": 2,
+   "layers": 64,
+   "kv_heads": 8,
+   "head_dim": 128,
+   "kv_bytes": 2
+  },
+  "Llama-3.1-70B": {
+   "params_b": 70.6,
+   "active_b": 70.6,
+   "bytes_per_param": 2,
+   "layers": 80,
+   "kv_heads": 8,
+   "head_dim": 128,
+   "kv_bytes": 2
+  },
+  "Llama-3.1-405B": {
+   "params_b": 405,
+   "active_b": 405,
+   "bytes_per_param": 1,
+   "layers": 126,
+   "kv_heads": 8,
+   "head_dim": 128,
+   "kv_bytes": 2
+  },
+  "Qwen3-235B-A22B": {
+   "params_b": 235,
+   "active_b": 22,
+   "bytes_per_param": 1,
+   "layers": 94,
+   "kv_heads": 4,
+   "head_dim": 128,
+   "kv_bytes": 2,
+   "moe": {
+    "experts": 128,
+    "active": 8,
+    "expert_fraction": 0.95
+   }
+  }
+ },
+ "scenarios": [
+  {
+   "model": "Qwen3-1.7B",
+   "context": 2048,
+   "batches": [
+    1
+   ]
+  },
+  {
+   "model": "Llama-3.1-70B",
+   "context": 8192,
+   "batches": [
+    1,
+    8,
+    32,
+    128
+   ]
+  },
+  {
+   "model": "Llama-3.1-405B",
+   "context": 8192,
+   "batches": [
+    1,
+    8,
+    32,
+    128
+   ]
+  },
+  {
+   "model": "Llama-3.1-405B",
+   "context": 131072,
+   "batches": [
+    1,
+    4,
+    16,
+    64
+   ]
+  },
+  {
+   "model": "Qwen3-235B-A22B",
+   "context": 32768,
+   "batches": [
+    1,
+    16,
+    64,
+    256
+   ]
+  },
+  {
+   "model": "Llama-3.1-405B",
+   "context": 1048576,
+   "batches": [
+    1,
+    2,
+    4
+   ]
+  }
+ ],
+ "tpot_slo_ms": 100,
+ "literature_ratios": [
+  "H3 (IEEE CAL 2026): max batch 2.6x at 1M ctx, throughput/power up to 2.69x vs HBM-only (secondary sources)",
+  "FlashAccel (2607.10186): throughput/GPU at 100 ms SLO: CSI (C4-like) 2.49x, CLI (C3-like) 2.00x vs 8xH200",
+  "FLINT (2608.25062): decode throughput/GPU 1.5-3.1x vs HBM-only",
+  "DASH (2608.14333): DirectOnly (C3) ~ RelayOnly (C4) at equal links"
+ ],
+ "fixed_node_gpus": [
+  1,
+  8
+ ]
+}

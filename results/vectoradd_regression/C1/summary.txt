@@ -1,0 +1,4 @@
+C1 vectoradd prefetch=off rc=0
+  cycles 85,434  time 60.59 us  kernels 1  insn 14,680,064
+  L2 accesses 393,216 misses 315,312
+  HBM/DRAM read 5,895,680 B write 1,310,720 B = 118.93 GB/s of 387.07

@@ -1,0 +1,65 @@
+pos,file,name,weight_bytes,cls
+1,kernel-4659-ctx_0x1cdb3040.traceg.xz,_ZN2at6native27unrolled_elementwise_kernelIZZZNS0_23direct_c,0,elementwise / other
+2,kernel-4660-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZNS0_51_GLO,0,RMSNorm
+3,kernel-4661-ctx_0x1cdb3040.traceg.xz,_ZN2at6native13reduce_kernelILi512ELi1ENS0_8ReduceOpIfNS0_7M,0,RMSNorm
+4,kernel-4662-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4ENS0_21CUDAF,0,elementwise / other
+5,kernel-4663-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZZZNS0_17rs,0,RMSNorm
+6,kernel-4664-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi2EZNS0_22gpu_kerne,0,elementwise / other
+7,kernel-4665-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZNS0_25bflo,0,elementwise / other
+8,kernel-4666-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_13Binar,4096,RMSNorm
+9,kernel-4667-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,8388608,"GEMV attn proj (q,k,v,o)"
+10,kernel-4668-ctx_0x1cdb3040.traceg.xz,_ZN2at6native27unrolled_elementwise_kernelIZZZNS0_23direct_c,0,elementwise / other
+11,kernel-4669-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZNS0_51_GLO,0,RMSNorm
+12,kernel-4670-ctx_0x1cdb3040.traceg.xz,_ZN2at6native13reduce_kernelILi512ELi1ENS0_8ReduceOpIfNS0_7M,0,RMSNorm
+13,kernel-4671-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4ENS0_21CUDAF,0,elementwise / other
+14,kernel-4672-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZZZNS0_17rs,0,RMSNorm
+15,kernel-4673-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi2EZNS0_22gpu_kerne,0,elementwise / other
+16,kernel-4674-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZNS0_25bflo,0,elementwise / other
+17,kernel-4675-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,4096,RMSNorm
+18,kernel-4676-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,4194304,"GEMV attn proj (q,k,v,o)"
+19,kernel-4677-ctx_0x1cdb3040.traceg.xz,_ZN2at6native27unrolled_elementwise_kernelIZZZNS0_23direct_c,0,elementwise / other
+20,kernel-4678-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZNS0_51_GLO,0,RMSNorm
+21,kernel-4679-ctx_0x1cdb3040.traceg.xz,_ZN2at6native13reduce_kernelILi512ELi1ENS0_8ReduceOpIfNS0_7M,0,RMSNorm
+22,kernel-4680-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4ENS0_21CUDAF,0,elementwise / other
+23,kernel-4681-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZZZNS0_17rs,0,RMSNorm
+24,kernel-4682-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi2EZNS0_22gpu_kerne,0,elementwise / other
+25,kernel-4683-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZNS0_25bflo,0,elementwise / other
+26,kernel-4684-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,4096,RMSNorm
+27,kernel-4685-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,4194304,"GEMV attn proj (q,k,v,o)"
+28,kernel-4686-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+29,kernel-4687-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+30,kernel-4688-ctx_0x1cdb3040.traceg.xz,_ZN2at6native40_GLOBAL__N__5df19e2c_8_Shape_cu_49f7391c19Cat,0,"attention (QK^T, softmax, AV, KV cat)"
+31,kernel-4689-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+32,kernel-4690-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_15CUDAF,0,elementwise / other
+33,kernel-4691-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+34,kernel-4692-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+35,kernel-4693-ctx_0x1cdb3040.traceg.xz,_ZN2at6native40_GLOBAL__N__5df19e2c_8_Shape_cu_49f7391c19Cat,0,"attention (QK^T, softmax, AV, KV cat)"
+36,kernel-4694-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+37,kernel-4695-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_15CUDAF,0,elementwise / other
+38,kernel-4696-ctx_0x1cdb3040.traceg.xz,_ZN2at6native40_GLOBAL__N__5df19e2c_8_Shape_cu_49f7391c35Cat,0,"attention (QK^T, softmax, AV, KV cat)"
+39,kernel-4697-ctx_0x1cdb3040.traceg.xz,_ZN2at6native40_GLOBAL__N__5df19e2c_8_Shape_cu_49f7391c35Cat,0,"attention (QK^T, softmax, AV, KV cat)"
+40,kernel-4698-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+41,kernel-4699-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+42,kernel-4700-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,0,"attention (QK^T, softmax, AV, KV cat)"
+43,kernel-4701-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_13AUnar,0,elementwise / other
+44,kernel-4702-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi4EZNS0_22gpu_kerne,0,elementwise / other
+45,kernel-4703-ctx_0x1cdb3040.traceg.xz,_ZN2at6native27unrolled_elementwise_kernelIZZZNS0_23direct_c,0,elementwise / other
+46,kernel-4704-ctx_0x1cdb3040.traceg.xz,_ZN43_GLOBAL__N__4da63efb_10_SoftMax_cu_9f978f6320softmax_wa,0,"attention (QK^T, softmax, AV, KV cat)"
+47,kernel-4705-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZNS0_25bflo,0,elementwise / other
+48,kernel-4706-ctx_0x1cdb3040.traceg.xz,_Z14gemvNSP_kernelI13__nv_bfloat16S0_S0_fLi1ELi32ELi4ELi1024,0,"attention (QK^T, softmax, AV, KV cat)"
+49,kernel-4707-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,8388608,"GEMV attn proj (q,k,v,o)"
+50,kernel-4708-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_15CUDAF,0,elementwise / other
+51,kernel-4709-ctx_0x1cdb3040.traceg.xz,_ZN2at6native27unrolled_elementwise_kernelIZZZNS0_23direct_c,0,elementwise / other
+52,kernel-4710-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZNS0_51_GLO,0,RMSNorm
+53,kernel-4711-ctx_0x1cdb3040.traceg.xz,_ZN2at6native13reduce_kernelILi512ELi1ENS0_8ReduceOpIfNS0_7M,0,RMSNorm
+54,kernel-4712-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4ENS0_21CUDAF,0,elementwise / other
+55,kernel-4713-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi4EZZZNS0_17rs,0,RMSNorm
+56,kernel-4714-ctx_0x1cdb3040.traceg.xz,_ZN2at6native18elementwise_kernelILi128ELi2EZNS0_22gpu_kerne,0,elementwise / other
+57,kernel-4715-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZNS0_25bflo,0,elementwise / other
+58,kernel-4716-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_13Binar,4096,RMSNorm
+59,kernel-4717-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,25165824,"GEMV MLP (gate,up,down)"
+60,kernel-4718-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8EZZZNS0_62_G,0,elementwise / other
+61,kernel-4719-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,25165824,"GEMV MLP (gate,up,down)"
+62,kernel-4720-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_13Binar,0,elementwise / other
+63,kernel-4721-ctx_0x1cdb3040.traceg.xz,_ZN8internal5gemvx6kernelIii13__nv_bfloat16S2_S2_fLb0ELb1ELb,25165824,"GEMV MLP (gate,up,down)"
+64,kernel-4722-ctx_0x1cdb3040.traceg.xz,_ZN2at6native29vectorized_elementwise_kernelILi8ENS0_15CUDAF,0,elementwise / other

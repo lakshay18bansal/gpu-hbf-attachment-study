@@ -1,0 +1,9 @@
+-gpgpu_hbf_l2_policy 0
+-gpgpu_hbf_num_channels 16
+-gpgpu_hbf_channel_bw_gbps 192
+-gpgpu_hbf_num_subarrays 512
+-gpgpu_hbf_max_active 512
+-gpgpu_hbf_max_outstanding 4096
+-gpgpu_hbf_buffer_hit_latency 10
+-gpgpu_hbf_buffer_hit_latency_ns 0
+-gpgpu_n_clusters 8

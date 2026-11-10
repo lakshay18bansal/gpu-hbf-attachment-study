@@ -1,0 +1,1194 @@
+From 1515c6b5150d2a0fc5795755920eec653c39814f Mon Sep 17 00:00:00 2001
+From: Lakshay <b.lakshay@iitg.ac.in>
+Date: Wed, 28 Oct 2026 17:42:11 +0000
+Subject: [PATCH 4/8] HBF: attach modes (direct / behind HBM), front-end
+ latency, prefetcher + LHB
+
+-gpgpu_hbf_attach 1 gives HBF its own per-sub-partition L2->HBF queue and
+credit pool (-gpgpu_hbf_credits) so the tiers cannot head-of-line block each
+other; 2 additionally charges every HBM request byte and HBF reply byte of a
+partition to one PHY token bucket (-gpgpu_hbf_phy_gbps), as when HBF data
+crosses the HBM stack's link (H3). -gpgpu_hbf_frontend_latency_ns delays each
+HBF request. New stats: credits, end-to-end read latency avg/p50/p95/p99, PHY.
+
+-gpgpu_hbf_prefetch_file streams per-kernel page hints (hbf-prefetch-v1) into a
+latency-hiding buffer (-gpgpu_hbf_lhb_pages, window, lookahead, hit latency).
+Prefetch reads yield to demand reads; demand merges into in-flight prefetches;
+prefetch-only work does not hold kernel completion.
+---
+ src/gpgpu-sim/gpu-sim.cc        |  57 +++++++++-
+ src/gpgpu-sim/gpu-sim.h         |  23 ++++
+ src/gpgpu-sim/hbf_controller.cc | 189 ++++++++++++++++++++++++++++++--
+ src/gpgpu-sim/hbf_controller.h  |  91 +++++++++++++++
+ src/gpgpu-sim/hbf_cube.cc       |  13 +++
+ src/gpgpu-sim/hbf_cube.h        |   4 +
+ src/gpgpu-sim/hbf_system.cc     |  92 ++++++++++++++++
+ src/gpgpu-sim/hbf_system.h      |  59 ++++++++++
+ src/gpgpu-sim/l2cache.cc        | 168 ++++++++++++++++++++++++++--
+ src/gpgpu-sim/l2cache.h         |  37 +++++++
+ src/gpgpu-sim/mem_fetch.h       |   1 +
+ 11 files changed, 718 insertions(+), 16 deletions(-)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index b8e99413..26c33b04 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -586,6 +586,48 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          "Idle write-drain quiet period in ns; overrides -gpgpu_hbf_idle_drain_quiet when > 0 (default 0)",
+                          "0");
+ 
++  option_parser_register(opp, "-gpgpu_hbf_attach", OPT_INT32, &hbf_attach,
++                         "HBF attachment: 0=legacy (shares DRAM queue and credits), "
++                         "1=direct (own queue and credits), 2=behind HBM (1 + shared PHY) (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_credits", OPT_UINT32, &hbf_credits,
++                         "attach 1/2: outstanding HBF requests per memory partition (default 32768)",
++                         "32768");
++  option_parser_register(opp, "-gpgpu_hbf_frontend_latency_ns", OPT_DOUBLE,
++                         &hbf_frontend_latency_ns,
++                         "attach 1/2: fixed latency added to every HBF request (GPU MC + PHY, "
++                         "+ base-die/D2D hop behind HBM), in ns (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_phy_gbps", OPT_DOUBLE, &hbf_phy_gbps,
++                         "attach 2: GB/s of the per-partition PHY shared by HBM and HBF bytes; 0=unlimited (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_prefetch_file", OPT_CSTR,
++                         &hbf_prefetch_file,
++                         "HBF prefetch hint file (hbf-prefetch-v1); empty disables the prefetcher (default \"\")",
++                         "");
++  option_parser_register(opp, "-gpgpu_hbf_prefetch_window", OPT_UINT32,
++                         &hbf_prefetch_window,
++                         "Prefetched-but-undemanded pages kept in flight or resident; 0 = lhb_pages (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_prefetch_lookahead", OPT_UINT32,
++                         &hbf_prefetch_lookahead,
++                         "At each kernel launch also stream the pages of the next N kernels (default 1)",
++                         "1");
++  option_parser_register(opp, "-gpgpu_hbf_lhb_pages", OPT_UINT32,
++                         &hbf_lhb_pages,
++                         "Latency-hiding buffer capacity in pages (default 0)", "0");
++  option_parser_register(opp, "-gpgpu_hbf_lhb_hit_latency", OPT_UINT32,
++                         &hbf_lhb_hit_latency,
++                         "LHB hit latency in DRAM ticks (default 50)", "50");
++  option_parser_register(opp, "-gpgpu_hbf_lhb_hit_latency_ns", OPT_DOUBLE,
++                         &hbf_lhb_hit_latency_ns,
++                         "LHB hit latency in ns; overrides -gpgpu_hbf_lhb_hit_latency when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_l2_queue_size", OPT_UINT32,
++                         &hbf_l2_queue_size,
++                         "attach 1/2: L2->HBF queue entries per sub-partition (default 8)",
++                         "8");
++
+   m_address_mapping.addrdec_setoption(opp);
+ }
+ 
+@@ -1083,6 +1125,7 @@ void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
+ 
+ void gpgpu_sim::launch(kernel_info_t *kinfo) {
+   unsigned kernelID = kinfo->get_uid();
++  if (m_hbf_system) m_hbf_system->on_kernel_launch(kernelID);
+   unsigned long long streamID = kinfo->get_streamID();
+ 
+   kernel_time_t kernel_time = {gpu_tot_sim_cycle + gpu_sim_cycle, 0};
+@@ -1639,6 +1682,7 @@ void memory_config::resolve_hbf_timings(double dram_freq_hz) {
+        &hbf_write_drain_maxwait},
+       {"read_agg_window", hbf_read_agg_window_ns, &hbf_read_agg_window},
+       {"idle_drain_quiet", hbf_idle_drain_quiet_ns, &hbf_idle_drain_quiet},
++      {"lhb_hit_latency", hbf_lhb_hit_latency_ns, &hbf_lhb_hit_latency},
+   };
+   std::string line;
+   char buf[160];
+@@ -1650,11 +1694,22 @@ void memory_config::resolve_hbf_timings(double dram_freq_hz) {
+              *t.ticks * 1e9 / dram_freq_hz, from_ns ? "(ns)" : "(ticks)");
+     line += buf;
+   }
+-  if (hbf_enabled)
++  if (hbf_enabled) {
+     printf("GPGPU-Sim uArch: HBF timings @ DRAM clock %.3f MHz (%s):%s\n",
+            dram_freq_hz / 1e6,
+            ramulator_enabled ? "Ramulator tCK" : "-gpgpu_clock_domains",
+            line.c_str());
++    if (hbf_attach < 0 || hbf_attach > 2) {
++      fprintf(stderr, "HBF: -gpgpu_hbf_attach must be 0, 1 or 2\n");
++      exit(1);
++    }
++    printf("GPGPU-Sim uArch: HBF attach=%d (%s) credits/partition=%u "
++           "frontend=%.2f ns phy=%.2f GB/s/partition l2_hbf_queue=%u\n",
++           hbf_attach,
++           hbf_attach == 0 ? "legacy" : hbf_attach == 1 ? "direct" : "behind-HBM",
++           hbf_credits, hbf_frontend_latency_ns, hbf_phy_gbps,
++           hbf_l2_queue_size);
++  }
+ }
+ 
+ void gpgpu_sim::reinit_clock_domains(void) {
+diff --git a/src/gpgpu-sim/gpu-sim.h b/src/gpgpu-sim/gpu-sim.h
+index 773d7b4a..901c63cb 100644
+--- a/src/gpgpu-sim/gpu-sim.h
++++ b/src/gpgpu-sim/gpu-sim.h
+@@ -577,6 +577,29 @@ class memory_config {
+   double hbf_dram_freq_hz;           // DRAM clock the HBF ticks refer to
+   void resolve_hbf_timings(double dram_freq_hz);
+ 
++  // How the HBF tier is attached to the GPU memory partitions.
++  //   0 = legacy HBF-Sim: HBF requests share each sub-partition's
++  //       L2_dram_queue and the partition's DRAM arbitration credits.
++  //   1 = direct (own PHY): HBF requests leave the L2 through their own
++  //       per-sub-partition queue and use their own credit pool.
++  //   2 = behind HBM (H3): as 1, and HBM and HBF bytes of a partition share
++  //       one PHY token bucket of hbf_phy_gbps (the HBM stack's GPU link).
++  int hbf_attach;
++  unsigned hbf_credits;              // attach 1/2: outstanding HBF requests per partition
++  double hbf_frontend_latency_ns;    // attach 1/2: added to every HBF request
++  double hbf_phy_gbps;               // attach 2: per-partition shared PHY bandwidth
++  unsigned hbf_l2_queue_size;        // attach 1/2: L2->HBF queue entries per sub-partition
++
++  // Prefetcher + latency-hiding buffer (one stack only).  The hint file lists,
++  // per kernel launch (1-based launch order = kernel uid), the HBF-relative
++  // pages the kernel reads in first-touch order (format hbf-prefetch-v1).
++  char *hbf_prefetch_file;           // empty = prefetch off
++  unsigned hbf_prefetch_window;      // undemanded prefetched pages (0 = lhb_pages)
++  unsigned hbf_prefetch_lookahead;   // also stream the next N kernels' pages at launch
++  unsigned hbf_lhb_pages;            // LHB capacity in pages
++  unsigned hbf_lhb_hit_latency;      // DRAM ticks
++  double hbf_lhb_hit_latency_ns;
++
+   // Check if an address falls in the HBF range
+   bool is_hbf_addr(new_addr_type addr) const {
+     if (!hbf_enabled) return false;
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 4cc2a493..7ee44314 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -130,6 +130,30 @@ hbf_controller_t::hbf_controller_t(unsigned partition_id,
+   // Logic-die page cache (0 entries = disabled; not CUDA Shared Memory).
+   m_page_cache = new hbf_page_cache_t(m_config->hbf_cache_entries);
+ 
++  // Prefetcher and latency-hiding buffer.
++  m_pf_window = 0;
++  m_pf_undemanded = 0;
++  m_pf_only_entries = 0;
++  m_lhb_hit_ticks = m_config->hbf_lhb_hit_latency > 0 ? m_config->hbf_lhb_hit_latency : 1;
++  if (m_config->hbf_prefetch_file && m_config->hbf_prefetch_file[0] != '\0') {
++    if (!m_config->hbf_mshr_enabled) {
++      fprintf(stderr, "HBF: the prefetcher needs -gpgpu_hbf_mshr_enabled 1\n");
++      exit(1);
++    }
++    unsigned lhb = m_config->hbf_lhb_pages;
++    if (lhb == 0) {
++      fprintf(stderr, "HBF: -gpgpu_hbf_prefetch_file needs -gpgpu_hbf_lhb_pages > 0\n");
++      exit(1);
++    }
++    m_lhb.configure(lhb);
++    m_pf_window = m_config->hbf_prefetch_window > 0 ? m_config->hbf_prefetch_window : lhb;
++    if (m_pf_window > lhb) m_pf_window = lhb;  // undemanded pages must fit
++  }
++  n_pf_enqueued = n_pf_issued = n_pf_skipped = n_pf_useful = n_pf_wasted = 0;
++  n_pf_merges = n_lhb_page_hits = n_lhb_request_hits = 0;
++  n_pf_lead_ticks = 0;
++  n_pf_lead_count = 0;
++
+   // Statistics
+   n_page_reads       = 0;
+   n_page_programs    = 0;
+@@ -385,6 +409,18 @@ void hbf_controller_t::push(mem_fetch *data) {
+   if (m_config->hbf_mshr_enabled) {
+     auto it = m_mshr.find(page_addr);
+     if (it != m_mshr.end()) {
++      if (it->second.is_prefetch && !it->second.pf_demanded) {
++        // First demand for a page the prefetcher is fetching.
++        it->second.pf_demanded = true;
++        assert(m_pf_undemanded > 0 && m_pf_only_entries > 0);
++        m_pf_undemanded--;
++        m_pf_only_entries--;
++        n_pf_useful++;
++        n_pf_merges++;
++      }
++      if (it->second.cache_hit_ready_tick != 0 && !it->second.is_prefetch &&
++          m_lhb.enabled())
++        n_lhb_request_hits++;
+       it->second.pending.push_back(data);
+       it->second.requested_bytes += data->get_data_size();
+       if (m_read_mode == 1 && it->second.read_aggregation_pending &&
+@@ -398,6 +434,35 @@ void hbf_controller_t::push(mem_fetch *data) {
+     }
+   }
+ 
++  // Prefetched page resident in the LHB: serve it after the LHB hit time
++  // without a NAND read.  The entry never enters the scheduling queue; the
++  // cache-hit path in cycle() delivers it (through the channel link credit).
++  if (m_lhb.enabled() && m_lhb.contains(page_addr)) {
++    unsigned long long fill_tick = 0;
++    if (m_lhb.demand(page_addr, &fill_tick)) {
++      assert(m_pf_undemanded > 0);
++      m_pf_undemanded--;
++      n_pf_useful++;
++      n_pf_lead_ticks += (double)(current_tick - fill_tick);
++      n_pf_lead_count++;
++    }
++    mshr_entry_t hit = {};
++    hit.phys_page = page_addr;
++    hit.channel_id = ch;
++    hit.subarray_id = subarray_of_page(page_addr, ch);
++    hit.op_state = OP_WAITING;
++    hit.first_arrival_cycle = current_cycle;
++    hit.first_arrival_tick = current_tick;
++    hit.issue_cycle = current_cycle;
++    hit.requested_bytes = data->get_data_size();
++    hit.cache_hit_ready_tick = current_tick + m_lhb_hit_ticks;
++    hit.pending.push_back(data);
++    m_mshr[page_addr] = hit;
++    n_lhb_page_hits++;
++    n_lhb_request_hits++;
++    return;
++  }
++
+   // Create MSHR entry for read
+   unsigned long long entry_key = m_config->hbf_mshr_enabled
+                                      ? page_addr
+@@ -686,6 +751,22 @@ void hbf_controller_t::cycle() {
+   // pending.size() is larger than the return queue capacity.
+   for (auto it = m_mshr.begin(); it != m_mshr.end();) {
+     if (!it->second.delivery_pending) { ++it; continue; }
++    if (it->second.is_prefetch && it->second.fill_cache_on_deliver) {
++      // A prefetch read finished: the page enters the LHB.
++      it->second.fill_cache_on_deliver = false;
++      unsigned wasted = m_lhb.insert(it->second.phys_page,
++                                     it->second.pf_demanded, current_tick);
++      n_pf_wasted += wasted;
++      assert(m_pf_undemanded >= wasted);
++      m_pf_undemanded -= wasted;
++      if (!it->second.pf_demanded) {
++        // Still nobody waiting: the LHB copy now carries the window credit.
++        assert(m_pf_only_entries > 0);
++        m_pf_only_entries--;
++        it = m_mshr.erase(it);
++        continue;
++      }
++    }
+     unsigned queue_length = m_returnq->get_length();
+     unsigned queue_capacity = m_returnq->get_max_len();
+     if (queue_length >= queue_capacity) { ++it; continue; }
+@@ -798,7 +879,9 @@ void hbf_controller_t::cycle() {
+     }
+   }
+ 
+-  // Step 4: Schedule new operations
++  // Step 4: Schedule new operations (prefetches join the queue first, but
++  // the scheduler always prefers demand entries).
++  issue_prefetches();
+   schedule_operations();
+ 
+   // Step 5: Idle drain (v0.4) — when the device has nothing in flight and
+@@ -828,6 +911,57 @@ void hbf_controller_t::cycle() {
+ //   - If block erased: issue PROGRAM directly.
+ // Power-limited by max_active (count of non-idle sub-arrays).
+ // ============================================================================
++void hbf_controller_t::prefetch_enqueue(
++    const std::vector<unsigned long long> &pages) {
++  if (!m_lhb.enabled()) return;
++  m_pf_stream.insert(m_pf_stream.end(), pages.begin(), pages.end());
++  n_pf_enqueued += pages.size();
++}
++
++// Streaming prefetcher: keep up to m_pf_window prefetched-but-undemanded
++// pages in flight or resident.  Prefetch reads are scheduled after demand
++// reads (schedule_operations) and leave room in the MSHR for demand.
++void hbf_controller_t::issue_prefetches() {
++  if (!m_lhb.enabled()) return;
++  unsigned long long current_cycle =
++      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  unsigned max_q = m_config->hbf_max_outstanding;
++  unsigned pf_cap = max_q == 0 ? ~0u : max_q - max_q / 4;
++  while (!m_pf_stream.empty() && m_pf_undemanded < m_pf_window &&
++         m_mshr.size() + m_write_buffer.size() < pf_cap) {
++    unsigned long long page = m_pf_stream.front();
++    m_pf_stream.pop_front();
++    if (m_mshr.count(page) || m_lhb.contains(page)) {
++      n_pf_skipped++;
++      continue;
++    }
++    mshr_entry_t entry = {};
++    entry.phys_page = page;
++    entry.channel_id = channel_of_page(page);
++    entry.op_state = OP_WAITING;
++    entry.is_prefetch = true;
++    entry.first_arrival_cycle = current_cycle;
++    entry.first_arrival_tick = m_hbf_tick;
++    if (m_ftl) {
++      hbf_phys_addr_t phys = m_ftl->translate(page, false);
++      if (!phys.valid() || phys.subarray >= m_num_subarrays ||
++          !m_channels[entry.channel_id]->owns_subarray(phys.subarray))
++        fail_fast("FTL prefetch mapping violates channel/subarray affinity",
++                  page);
++      entry.subarray_id = phys.subarray;
++      entry.block_id = phys.block;
++      entry.page_offset = phys.page;
++    } else {
++      direct_physical_address(page, entry.channel_id, &entry.subarray_id,
++                              &entry.block_id, &entry.page_offset);
++    }
++    m_mshr[page] = entry;
++    m_mshr_queue.push_back(page);
++    m_pf_undemanded++;
++    m_pf_only_entries++;
++  }
++}
++
+ void hbf_controller_t::schedule_operations() {
+   // active-count maintained incrementally by m_active_subarrays — scanning
+   // all sub-arrays here every cycle was the main simulation bottleneck.
+@@ -848,12 +982,15 @@ void hbf_controller_t::schedule_operations() {
+ 
+     std::vector<std::list<unsigned long long>::iterator> candidate_iters;
+     std::vector<hbf_schedule_candidate_t> candidates;
++    std::vector<bool> prefetch_only;
+     for (auto qit = m_mshr_queue.begin(); qit != m_mshr_queue.end(); ++qit) {
+       auto mit = m_mshr.find(*qit);
+       hbf_schedule_candidate_t candidate = {};
++      bool pf_only = mit != m_mshr.end() && mit->second.is_prefetch &&
++                     mit->second.pending.empty();
+       candidate.waiting =
+           mit != m_mshr.end() && mit->second.op_state == OP_WAITING &&
+-          !mit->second.pending.empty();
++          (!mit->second.pending.empty() || pf_only);
+       if (candidate.waiting) {
+         mshr_entry_t &entry = mit->second;
+         if (entry.channel_id >= m_num_channels ||
+@@ -865,14 +1002,27 @@ void hbf_controller_t::schedule_operations() {
+         }
+         candidate.aggregation_pending = entry.read_aggregation_pending;
+         candidate.subarray_idle = ensure_subarray(entry.subarray_id)->is_idle();
+-        candidate.is_read = !entry.pending.front()->get_is_write();
++        candidate.is_read =
++            pf_only || !entry.pending.front()->get_is_write();
+       }
+       candidate_iters.push_back(qit);
+       candidates.push_back(candidate);
++      prefetch_only.push_back(pf_only);
+     }
+ 
+-    int selected = hbf_pick_schedule_candidate(
+-        candidates, prefer_reads, m_scheduler != 0);
++    // Demand first: hide prefetch-only entries, and only if no demand entry
++    // can issue, pick among everything.
++    int selected = -1;
++    if (m_lhb.enabled()) {
++      std::vector<hbf_schedule_candidate_t> demand = candidates;
++      for (size_t i = 0; i < demand.size(); ++i)
++        if (prefetch_only[i]) demand[i].waiting = false;
++      selected = hbf_pick_schedule_candidate(demand, prefer_reads,
++                                             m_scheduler != 0);
++    }
++    if (selected < 0)
++      selected = hbf_pick_schedule_candidate(candidates, prefer_reads,
++                                             m_scheduler != 0);
+     if (selected < 0) break;
+     if (m_scheduler == 2 && m_write_drain_read_due &&
+         candidates[(size_t)selected].is_read) {
+@@ -896,9 +1046,11 @@ void hbf_controller_t::schedule_operations() {
+     assert(m_subarrays[sa_id] != NULL && m_subarrays[sa_id]->is_idle());
+ 
+     hbf_subarray_t *sa = m_subarrays[sa_id];
+-    mem_fetch *first_mf = mshr_it->second.pending.front();
++    mem_fetch *first_mf = mshr_it->second.pending.empty()
++                              ? NULL  // prefetch with no requester yet
++                              : mshr_it->second.pending.front();
+ 
+-    if (first_mf->get_is_write()) {
++    if (first_mf != NULL && first_mf->get_is_write()) {
+       // ═══ Write path: erase-before-write ═══
+       // v0.4: Invalidate page cache (old data is stale)
+       if (m_page_cache->enabled()) {
+@@ -961,7 +1113,8 @@ void hbf_controller_t::schedule_operations() {
+         ch->n_page_reads++;
+         n_cache_misses++;
+         n_media_read_bytes += m_config->hbf_page_size;
+-        if (m_trace != NULL)
++        if (mshr_it->second.is_prefetch) n_pf_issued++;
++        if (m_trace != NULL && first_mf != NULL)
+           m_trace->record(mshr_it->second.issue_cycle, "READ", first_mf,
+                           mshr_it->second.phys_page,
+                           mshr_it->second.channel_id, sa_id,
+@@ -999,6 +1152,11 @@ unsigned hbf_controller_t::que_length() const {
+ bool hbf_controller_t::has_work() const {
+   return !m_mshr.empty() || !m_mshr_queue.empty() ||
+          !m_write_buffer.empty() || !m_active_subarrays.empty() ||
++         m_returnq->get_length() != 0 || !m_pf_stream.empty();
++}
++
++bool hbf_controller_t::has_demand_work() const {
++  return m_mshr.size() > m_pf_only_entries || !m_write_buffer.empty() ||
+          m_returnq->get_length() != 0;
+ }
+ 
+@@ -1178,4 +1336,19 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+   }
+ 
+   fprintf(simFile, "==========================================================\n\n");
++  if (m_lhb.enabled()) {
++    fprintf(simFile, "HBF Prefetch: window=%u lhb=%u pages lhb_hit=%u ticks\n",
++            m_pf_window, m_config->hbf_lhb_pages, m_lhb_hit_ticks);
++    fprintf(simFile, "HBF Prefetch Pages: enqueued=%llu issued=%llu skipped=%llu "
++            "useful=%llu wasted=%llu merges=%llu left_undemanded=%u stream_left=%zu\n",
++            n_pf_enqueued, n_pf_issued, n_pf_skipped, n_pf_useful, n_pf_wasted,
++            n_pf_merges, m_pf_undemanded, m_pf_stream.size());
++    fprintf(simFile, "HBF LHB Hits: pages=%llu requests=%llu (%.2f%% of read requests)\n",
++            n_lhb_page_hits, n_lhb_request_hits,
++            n_read_requests ? 100.0 * n_lhb_request_hits / n_read_requests : 0.0);
++    fprintf(simFile, "HBF Prefetch Lead: avg=%.1f ticks (%.3f us) over %llu pages\n",
++            n_pf_lead_count ? n_pf_lead_ticks / n_pf_lead_count : 0.0,
++            n_pf_lead_count ? n_pf_lead_ticks / n_pf_lead_count / m_dram_freq_mhz : 0.0,
++            n_pf_lead_count);
++  }
+ }
+diff --git a/src/gpgpu-sim/hbf_controller.h b/src/gpgpu-sim/hbf_controller.h
+index cabfc312..2405626f 100644
+--- a/src/gpgpu-sim/hbf_controller.h
++++ b/src/gpgpu-sim/hbf_controller.h
+@@ -15,9 +15,11 @@
+ #ifndef HBF_CONTROLLER_H
+ #define HBF_CONTROLLER_H
+ 
++#include <deque>
+ #include <list>
+ #include <map>
+ #include <set>
++#include <unordered_map>
+ #include <vector>
+ #include "../abstract_hardware_model.h"
+ #include "delayqueue.h"
+@@ -235,8 +237,72 @@ class hbf_write_coverage_t {
+   unsigned m_covered_bytes;
+ };
+ 
++// Latency-hiding buffer (LHB) of the HBF prefetcher (-gpgpu_hbf_prefetch_file).
++// Holds whole 4 KiB pages.  Pages that were prefetched but not yet demanded
++// sit in a FIFO and are evicted only when every resident page is undemanded;
++// demanded pages are kept in LRU order and are evicted first.
++class hbf_lhb_t {
++ public:
++  hbf_lhb_t() : m_capacity(0) {}
++  void configure(unsigned capacity) { m_capacity = capacity; }
++  bool enabled() const { return m_capacity > 0; }
++  unsigned size() const { return (unsigned)m_index.size(); }
++  bool contains(unsigned long long page) const {
++    return m_index.count(page) != 0;
++  }
++  // Demand access.  Returns true when this is the page's first demand (it
++  // was prefetched and never used); *fill_tick gets the tick it arrived.
++  bool demand(unsigned long long page, unsigned long long *fill_tick) {
++    auto it = m_index.find(page);
++    if (it == m_index.end()) return false;
++    *fill_tick = it->second.fill_tick;
++    bool first = !it->second.demanded;
++    (first ? m_undemanded : m_demanded).erase(it->second.pos);
++    m_demanded.push_front(page);
++    it->second.pos = m_demanded.begin();
++    it->second.demanded = true;
++    return first;
++  }
++  // Returns the number of never-demanded pages evicted to make room.
++  unsigned insert(unsigned long long page, bool demanded,
++                  unsigned long long tick) {
++    if (m_capacity == 0 || contains(page)) return 0;
++    unsigned wasted = 0;
++    while (m_index.size() >= m_capacity) {
++      std::list<unsigned long long> &victims =
++          m_demanded.empty() ? m_undemanded : m_demanded;
++      if (&victims == &m_undemanded) ++wasted;
++      m_index.erase(victims.back());
++      victims.pop_back();
++    }
++    std::list<unsigned long long> &dst = demanded ? m_demanded : m_undemanded;
++    dst.push_front(page);
++    entry_t e;
++    e.pos = dst.begin();
++    e.demanded = demanded;
++    e.fill_tick = tick;
++    m_index[page] = e;
++    return wasted;
++  }
++  unsigned undemanded() const { return (unsigned)m_undemanded.size(); }
++
++ private:
++  struct entry_t {
++    std::list<unsigned long long>::iterator pos;
++    bool demanded;
++    unsigned long long fill_tick;
++  };
++  unsigned m_capacity;
++  std::list<unsigned long long> m_demanded;    // front = most recently used
++  std::list<unsigned long long> m_undemanded;  // front = newest fill
++  std::unordered_map<unsigned long long, entry_t> m_index;
++};
++
+ class hbf_controller_t {
+  public:
++  // Append pages (HBF-relative page numbers) to the prefetch stream.
++  void prefetch_enqueue(const std::vector<unsigned long long> &pages);
++  bool prefetch_enabled() const { return m_lhb.enabled(); }
+   hbf_controller_t(unsigned partition_id, const memory_config *config,
+                    memory_stats_t *stats, memory_partition_unit *mp,
+                    gpgpu_sim *gpu);
+@@ -251,6 +317,8 @@ class hbf_controller_t {
+   unsigned que_length() const;
+   void print_stat(FILE *simFile);
+   bool has_work() const;
++  // Work a GPU kernel must wait for (excludes prefetch-only operations).
++  bool has_demand_work() const;
+   unsigned get_num_channels() const { return m_num_channels; }
+ 
+   // Accessors
+@@ -340,6 +408,8 @@ class hbf_controller_t {
+     bool read_aggregation_pending;   // aggregation mode: wait for window/threshold
+     bool is_write_operation;         // retained while replies are batch-delivered
+     bool first_delivery_recorded;    // page-level delivery stats count once
++    bool is_prefetch;                // issued by the prefetcher (no requester at issue)
++    bool pf_demanded;                // a demand request has joined this prefetch
+     unsigned long long issue_cycle;   // when operation was issued to sub-array
+     unsigned long long first_arrival_cycle;
+     unsigned long long first_arrival_tick;
+@@ -360,6 +430,27 @@ class hbf_controller_t {
+   // Logic-die page cache (LRU SRAM), distinct from CUDA Shared Memory.
+   hbf_page_cache_t *m_page_cache;
+ 
++  // Prefetcher + LHB (-gpgpu_hbf_prefetch_file).  m_pf_undemanded counts
++  // prefetched pages (in flight or resident) that no demand has touched yet;
++  // the prefetcher keeps it at or below m_pf_window.
++  hbf_lhb_t m_lhb;
++  std::deque<unsigned long long> m_pf_stream;
++  unsigned m_pf_window;
++  unsigned m_pf_undemanded;
++  unsigned m_lhb_hit_ticks;
++  void issue_prefetches();
++  unsigned m_pf_only_entries;          // MSHR entries with no requester yet
++  unsigned long long n_pf_enqueued;
++  unsigned long long n_pf_issued;     // NAND reads started by the prefetcher
++  unsigned long long n_pf_skipped;    // already resident / in flight
++  unsigned long long n_pf_useful;     // prefetched pages later demanded
++  unsigned long long n_pf_wasted;     // evicted before any demand
++  unsigned long long n_pf_merges;     // demands that joined an in-flight prefetch
++  unsigned long long n_lhb_page_hits; // demand page entries served from the LHB
++  unsigned long long n_lhb_request_hits;  // requests served by those entries
++  double n_pf_lead_ticks;             // fill -> first demand, summed
++  unsigned long long n_pf_lead_count;
++
+   // Strict explicit page-to-channel placement table (placement mode 2).
+   std::map<unsigned long long, unsigned> m_explicit_channel_map;
+ 
+diff --git a/src/gpgpu-sim/hbf_cube.cc b/src/gpgpu-sim/hbf_cube.cc
+index 15cbcf61..bd76142b 100644
+--- a/src/gpgpu-sim/hbf_cube.cc
++++ b/src/gpgpu-sim/hbf_cube.cc
+@@ -89,6 +89,19 @@ mem_fetch *hbf_cube_t::pop_return_for(unsigned global_subpartition_id) {
+   return request;
+ }
+ 
++void hbf_cube_t::prefetch_enqueue(const std::vector<unsigned long long> &pages) {
++  m_controller->prefetch_enqueue(pages);
++}
++
++bool hbf_cube_t::has_demand_work() const {
++  return m_controller->has_demand_work() || !m_returns.empty();
++}
++
++bool hbf_cube_t::has_return_for(unsigned global_subpartition_id) const {
++  auto it = m_returns.find(global_subpartition_id);
++  return it != m_returns.end() && !it->second.empty();
++}
++
+ bool hbf_cube_t::busy() const {
+   return m_controller->has_work() || !m_returns.empty();
+ }
+diff --git a/src/gpgpu-sim/hbf_cube.h b/src/gpgpu-sim/hbf_cube.h
+index ce933031..380bed59 100644
+--- a/src/gpgpu-sim/hbf_cube.h
++++ b/src/gpgpu-sim/hbf_cube.h
+@@ -10,6 +10,7 @@
+ 
+ #include <deque>
+ #include <map>
++#include <vector>
+ #include <stdio.h>
+ 
+ class hbf_controller_t;
+@@ -38,6 +39,9 @@ class hbf_cube_t {
+   // per-source queues in cycle(), avoiding head-of-line blocking between
+   // memory partitions.
+   mem_fetch *pop_return_for(unsigned global_subpartition_id);
++  bool has_return_for(unsigned global_subpartition_id) const;
++  void prefetch_enqueue(const std::vector<unsigned long long> &pages);
++  bool has_demand_work() const;
+ 
+   bool busy() const;
+   unsigned num_channels() const;
+diff --git a/src/gpgpu-sim/hbf_system.cc b/src/gpgpu-sim/hbf_system.cc
+index ec48f056..6933bb98 100644
+--- a/src/gpgpu-sim/hbf_system.cc
++++ b/src/gpgpu-sim/hbf_system.cc
+@@ -1,6 +1,9 @@
+ #include "hbf_system.h"
+ 
+ #include <assert.h>
++#include <fstream>
++#include <sstream>
++#include <string>
+ #include <limits.h>
+ #include <stdlib.h>
+ 
+@@ -34,6 +37,16 @@ hbf_system_t::hbf_system_t(const memory_config *config,
+     exit(1);
+   }
+ 
++  m_prefetch_streamed_upto = 0;
++  m_prefetch_hint_pages = 0;
++  if (config->hbf_prefetch_file && config->hbf_prefetch_file[0] != '\0') {
++    if (m_num_stacks != 1 || config->hbf_route_all) {
++      fprintf(stderr, "HBF: the prefetcher supports one stack without route_all\n");
++      exit(1);
++    }
++    load_prefetch_hints(config->hbf_prefetch_file);
++  }
++
+   m_stacks.reserve(m_num_stacks);
+   m_routed_requests.assign(m_num_stacks, 0);
+   m_completed_requests.assign(m_num_stacks, 0);
+@@ -118,6 +131,65 @@ mem_fetch *hbf_system_t::pop_return_for(unsigned global_subpartition_id) {
+   return NULL;
+ }
+ 
++// hbf-prefetch-v1: '#' comment lines, then per line
++//   <kernel uid> <n_pages> <page_0> ... <page_n-1>
++// pages are HBF-relative page numbers in first-touch order.
++void hbf_system_t::load_prefetch_hints(const char *path) {
++  std::ifstream in(path);
++  if (!in) {
++    fprintf(stderr, "HBF: cannot open prefetch hint file %s\n", path);
++    exit(1);
++  }
++  std::string line;
++  while (std::getline(in, line)) {
++    if (line.empty() || line[0] == '#') continue;
++    std::istringstream ss(line);
++    unsigned uid = 0;
++    unsigned long long n = 0;
++    if (!(ss >> uid >> n)) continue;
++    std::vector<unsigned long long> &pages = m_prefetch_hints[uid];
++    pages.reserve(pages.size() + n);
++    unsigned long long page;
++    for (unsigned long long i = 0; i < n && (ss >> page); ++i)
++      pages.push_back(page);
++    if (pages.size() < n) {
++      fprintf(stderr, "HBF: prefetch hint line for kernel %u is short\n", uid);
++      exit(1);
++    }
++    m_prefetch_hint_pages += n;
++  }
++  printf("GPGPU-Sim uArch: HBF prefetch hints: %zu kernels, %llu pages from %s "
++         "(lookahead %u, window %u, LHB %u pages)\n",
++         m_prefetch_hints.size(), m_prefetch_hint_pages, path,
++         m_config->hbf_prefetch_lookahead, m_config->hbf_prefetch_window,
++         m_config->hbf_lhb_pages);
++}
++
++void hbf_system_t::on_kernel_launch(unsigned kernel_uid) {
++  if (m_prefetch_hints.empty()) return;
++  unsigned last = kernel_uid + m_config->hbf_prefetch_lookahead;
++  unsigned first = kernel_uid > m_prefetch_streamed_upto
++                       ? kernel_uid
++                       : m_prefetch_streamed_upto + 1;
++  for (unsigned uid = first; uid <= last; ++uid) {
++    auto it = m_prefetch_hints.find(uid);
++    if (it != m_prefetch_hints.end()) m_stacks[0]->prefetch_enqueue(it->second);
++  }
++  if (last > m_prefetch_streamed_upto) m_prefetch_streamed_upto = last;
++}
++
++bool hbf_system_t::busy_demand() const {
++  for (const hbf_cube_t *stack : m_stacks)
++    if (stack->has_demand_work()) return true;
++  return !m_original_addresses.empty();
++}
++
++bool hbf_system_t::has_return_for(unsigned global_subpartition_id) const {
++  for (const hbf_cube_t *stack : m_stacks)
++    if (stack->has_return_for(global_subpartition_id)) return true;
++  return false;
++}
++
+ bool hbf_system_t::busy() const {
+   for (const hbf_cube_t *stack : m_stacks)
+     if (stack->busy()) return true;
+@@ -136,6 +208,26 @@ void hbf_system_t::print_stat(FILE *fp) {
+   fprintf(fp, "HBF Total Capacity:     %llu bytes\n", m_total_capacity);
+   fprintf(fp, "HBF Per-Stack Capacity: %llu bytes\n", m_stack_capacity);
+   fprintf(fp, "HBF Channels Per Stack: %u\n", channels_per_stack());
++  if (m_config->hbf_attach >= 1) {
++    const hbf_attach_stats_t &a = m_attach_stats;
++    fprintf(fp, "HBF Attach Mode:        %d (%s)\n", m_config->hbf_attach,
++            m_config->hbf_attach == 1 ? "direct" : "behind-HBM");
++    fprintf(fp, "HBF Attach Admitted:    %llu\n", a.admitted);
++    fprintf(fp, "HBF Attach Returned:    %llu\n", a.returned);
++    fprintf(fp, "HBF Credits Max Used:   %llu (limit %u per partition)\n",
++            a.max_credits_used, m_config->hbf_credits);
++    fprintf(fp, "HBF Credits Avg Used:   %.2f\n",
++            a.credit_samples ? a.credit_used_sum / a.credit_samples : 0.0);
++    fprintf(fp, "HBF Credit Block Ticks: %llu\n", a.credit_block_ticks);
++    fprintf(fp, "HBF E2E Read Latency:   avg=%.1f p50=%llu p95=%llu p99=%llu max=%llu core cycles (%llu reqs)\n",
++            a.lat_count ? a.lat_sum / a.lat_count : 0.0, a.percentile(0.50),
++            a.percentile(0.95), a.percentile(0.99), a.lat_max, a.lat_count);
++    if (m_config->hbf_attach == 2)
++      fprintf(fp, "HBF PHY Shared:         %.2f GB/s/partition hbm_bytes=%llu hbf_bytes=%llu "
++              "hbm_stall_ticks=%llu hbf_stall_ticks=%llu\n",
++              m_config->hbf_phy_gbps, a.phy_hbm_bytes, a.phy_hbf_bytes,
++              a.phy_hbm_stall_ticks, a.phy_hbf_stall_ticks);
++  }
+   for (unsigned stack = 0; stack < m_num_stacks; ++stack) {
+     fprintf(fp,
+             "\n--------- HBF Stack %u (routed=%llu completed=%llu) ---------\n",
+diff --git a/src/gpgpu-sim/hbf_system.h b/src/gpgpu-sim/hbf_system.h
+index 3d7f5840..65de2ae2 100644
+--- a/src/gpgpu-sim/hbf_system.h
++++ b/src/gpgpu-sim/hbf_system.h
+@@ -30,8 +30,57 @@ struct hbf_stack_location_t {
+   unsigned long long local_offset;
+ };
+ 
++// Counters of the partition-side attachment (-gpgpu_hbf_attach 1/2), summed
++// over all memory partitions.  Latency is end to end as the GPU sees it:
++// from the cycle the request leaves the L2 (enters the L2->HBF queue) to the
++// cycle its reply enters the DRAM->L2 queue, in core cycles.
++struct hbf_attach_stats_t {
++  static const unsigned kBucketCycles = 16;
++  static const unsigned kBuckets = 1 << 16;  // exact to 16 cycles up to ~1M cycles
++  hbf_attach_stats_t() : latency_hist(kBuckets + 1, 0) {}
++
++  unsigned long long admitted = 0;           // requests that took an HBF credit
++  unsigned long long returned = 0;           // requests that gave it back
++  unsigned long long credit_block_ticks = 0; // partition-ticks with work but no credit
++  unsigned long long max_credits_used = 0;
++  double credit_used_sum = 0;                // sampled once per partition-tick
++  unsigned long long credit_samples = 0;
++  unsigned long long phy_hbf_bytes = 0;      // attach 2: bytes charged to the PHY
++  unsigned long long phy_hbm_bytes = 0;
++  unsigned long long phy_hbf_stall_ticks = 0;  // a ready HBF return waited for the PHY
++  unsigned long long phy_hbm_stall_ticks = 0;  // a ready HBM request waited for the PHY
++  unsigned long long lat_count = 0;
++  unsigned long long lat_max = 0;
++  double lat_sum = 0;
++  std::vector<unsigned long long> latency_hist;
++
++  void record_latency(unsigned long long cycles) {
++    lat_count++;
++    lat_sum += (double)cycles;
++    if (cycles > lat_max) lat_max = cycles;
++    unsigned long long b = cycles / kBucketCycles;
++    latency_hist[b < kBuckets ? b : kBuckets]++;
++  }
++  // Upper edge of the bucket holding the p-quantile (p in [0,1]).
++  unsigned long long percentile(double p) const {
++    if (lat_count == 0) return 0;
++    unsigned long long target = (unsigned long long)(p * (double)lat_count);
++    if (target >= lat_count) target = lat_count - 1;
++    unsigned long long seen = 0;
++    for (unsigned b = 0; b <= kBuckets; ++b) {
++      seen += latency_hist[b];
++      if (seen > target)
++        return b < kBuckets ? (unsigned long long)(b + 1) * kBucketCycles
++                            : lat_max;
++    }
++    return lat_max;
++  }
++};
++
+ class hbf_system_t {
+  public:
++  hbf_attach_stats_t &attach_stats() { return m_attach_stats; }
++
+   hbf_system_t(const memory_config *config, memory_stats_t *stats,
+                gpgpu_sim *gpu);
+   ~hbf_system_t();
+@@ -40,6 +89,11 @@ class hbf_system_t {
+   void push(mem_fetch *request);
+   void cycle();
+   mem_fetch *pop_return_for(unsigned global_subpartition_id);
++  bool has_return_for(unsigned global_subpartition_id) const;
++  // Kernel launch hook for the prefetcher (uid = 1-based launch order).
++  void on_kernel_launch(unsigned kernel_uid);
++  // Busy with work a kernel must wait for (prefetch-only work excluded).
++  bool busy_demand() const;
+ 
+   bool busy() const;
+   unsigned num_stacks() const { return m_num_stacks; }
+@@ -116,6 +170,11 @@ class hbf_system_t {
+   bool m_rewrite_addresses;
+   unsigned long long m_total_capacity;
+   unsigned long long m_stack_capacity;
++  hbf_attach_stats_t m_attach_stats;
++  void load_prefetch_hints(const char *path);
++  std::map<unsigned, std::vector<unsigned long long> > m_prefetch_hints;
++  unsigned m_prefetch_streamed_upto;  // highest kernel uid already streamed
++  unsigned long long m_prefetch_hint_pages;
+ };
+ 
+ #endif  // HBF_SYSTEM_H
+diff --git a/src/gpgpu-sim/l2cache.cc b/src/gpgpu-sim/l2cache.cc
+index ec8a92a9..979b86aa 100644
+--- a/src/gpgpu-sim/l2cache.cc
++++ b/src/gpgpu-sim/l2cache.cc
+@@ -107,6 +107,18 @@ memory_partition_unit::memory_partition_unit(
+   // One logical HBF system is shared by all memory partitions.  Partitions
+   // only retain the pointer for local injection and completion routing.
+   m_hbf_system = hbf_system;
++  m_hbf_credits_used = 0;
++  m_hbf_frontend_cycles = (unsigned long long)llround(
++      config->hbf_frontend_latency_ns * 1e-9 * gpu->get_config().get_core_freq());
++  m_phy_rate = (config->hbf_attach == 2 && config->hbf_phy_gbps > 0 &&
++                config->hbf_dram_freq_hz > 0)
++                   ? config->hbf_phy_gbps * 1e9 / config->hbf_dram_freq_hz
++                   : 0.0;
++  // Burst: one 128 B transaction on top of a tick's worth of bytes.
++  m_phy_cap = m_phy_rate + 128.0;
++  m_phy_tokens = m_phy_cap;
++  m_phy_hbm_turn = false;
++  m_phy_hbm_waiting = false;
+ 
+   m_sub_partition = new memory_sub_partition
+       *[m_config->m_n_sub_partition_per_memory_channel];
+@@ -229,7 +241,7 @@ bool memory_partition_unit::busy() const {
+       busy = true;
+     }
+   }
+-  if (m_id == 0 && m_hbf_system && m_hbf_system->busy()) busy = true;
++  if (m_id == 0 && m_hbf_system && m_hbf_system->busy_demand()) busy = true;
+   return busy;
+ }
+ 
+@@ -273,6 +285,7 @@ int memory_partition_unit::global_sub_partition_id_to_local_id(
+ // partition's completions and attempts one local admission.
+ bool memory_partition_unit::hbf_cycle() {
+   if (!m_hbf_system) return false;
++  if (m_config->hbf_attach >= 1) return hbf_direct_cycle();
+ 
+   for (unsigned p = 0;
+        p < m_config->m_n_sub_partition_per_memory_channel; ++p) {
+@@ -316,6 +329,118 @@ bool memory_partition_unit::hbf_cycle() {
+   return false;
+ }
+ 
++// -gpgpu_hbf_attach 1/2.  The partition owns an HBF port that is separate
++// from its DRAM/HBM controller: HBF misses arrive through the sub-partitions'
++// L2->HBF queues, take one of hbf_credits credits, wait the front-end latency
++// and enter the (GPU-wide) HBF system.  Replies go back through the normal
++// DRAM->L2 queue.  With attach 2 every HBF reply byte and every HBM request
++// byte of this partition is charged to one PHY token bucket (the HBM stack's
++// GPU-facing link, which in H3 also carries the HBF data).
++// Called once per DRAM tick.  Returns true if a request was admitted.
++bool memory_partition_unit::hbf_direct_cycle() {
++  const unsigned n_sub = m_config->m_n_sub_partition_per_memory_channel;
++  const unsigned long long now = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  hbf_attach_stats_t &st = m_hbf_system->attach_stats();
++  const bool phy = m_phy_rate > 0;
++  bool yield = false;
++  if (phy) {
++    m_phy_tokens = std::min(m_phy_cap, m_phy_tokens + m_phy_rate);
++    // When both tiers want the PHY they alternate ticks; on HBM's tick HBF
++    // replies hold back so a stream of replies cannot starve HBM requests.
++    m_phy_hbm_turn = !m_phy_hbm_turn;
++    yield = m_phy_hbm_turn && m_phy_hbm_waiting;
++    m_phy_hbm_waiting = false;
++  }
++
++  // 1. Replies (one per sub-partition per tick).
++  for (unsigned p = 0; p < n_sub; ++p) {
++    unsigned global_spid = m_id * n_sub + p;
++    if (m_sub_partition[p]->dram_L2_queue_full()) continue;
++    if (!m_hbf_system->has_return_for(global_spid)) continue;
++    if (phy && (yield || m_phy_tokens <= 0.0)) {
++      st.phy_hbf_stall_ticks++;
++      continue;
++    }
++    mem_fetch *mf_return = m_hbf_system->pop_return_for(global_spid);
++    assert(mf_return);
++    bool is_wb = mf_return->get_access_type() == L1_WRBK_ACC ||
++                 mf_return->get_access_type() == L2_WRBK_ACC;
++    if (phy && !mf_return->is_write()) {
++      m_phy_tokens -= mf_return->get_data_size();
++      st.phy_hbf_bytes += mf_return->get_data_size();
++    }
++    auto issued = m_hbf_issue_cycle.find(mf_return);
++    assert(issued != m_hbf_issue_cycle.end());
++    if (!mf_return->is_write()) st.record_latency(now - issued->second);
++    m_hbf_issue_cycle.erase(issued);
++    assert(m_hbf_credits_used > 0);
++    m_hbf_credits_used--;
++    st.returned++;
++    if (is_wb) {
++      // Write-backs only held an HBF credit, not a DRAM one.
++      m_sub_partition[p]->set_done(mf_return);
++      delete mf_return;
++    } else {
++      m_sub_partition[p]->dram_L2_queue_push(mf_return);
++      mf_return->set_status(IN_PARTITION_DRAM_TO_L2_QUEUE, now);
++    }
++  }
++
++  // 2. Front-end latency queue -> HBF system (in order).
++  while (!m_hbf_frontend_queue.empty() &&
++         m_hbf_frontend_queue.front().ready_cycle <= now) {
++    mem_fetch *mf = m_hbf_frontend_queue.front().req;
++    if (m_hbf_system->full(mf->get_addr(), mf->is_write())) break;
++    m_hbf_frontend_queue.pop_front();
++    m_hbf_system->push(mf);
++  }
++
++  // 3. Admission from the L2->HBF queues (one per sub-partition per tick).
++  bool admitted = false;
++  bool waiting = false;
++  for (unsigned p = 0; p < n_sub; ++p) {
++    if (m_sub_partition[p]->L2_hbf_queue_empty()) continue;
++    if (m_hbf_credits_used >= m_config->hbf_credits) {
++      waiting = true;
++      break;
++    }
++    mem_fetch *mf = m_sub_partition[p]->L2_hbf_queue_top();
++    m_sub_partition[p]->L2_hbf_queue_pop();
++    if (phy && mf->is_write()) {
++      // write payload crosses the PHY on the way in
++      m_phy_tokens -= mf->get_data_size();
++      st.phy_hbf_bytes += mf->get_data_size();
++    }
++    m_hbf_credits_used++;
++    st.admitted++;
++    m_hbf_issue_cycle[mf] = mf->get_status_change_cycle();
++    mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE, now);
++    hbf_delay_t d;
++    d.ready_cycle = now + m_hbf_frontend_cycles;
++    d.req = mf;
++    m_hbf_frontend_queue.push_back(d);
++    admitted = true;
++  }
++  if (waiting) st.credit_block_ticks++;
++  if (m_hbf_credits_used > st.max_credits_used)
++    st.max_credits_used = m_hbf_credits_used;
++  st.credit_used_sum += m_hbf_credits_used;
++  st.credit_samples++;
++  return admitted;
++}
++
++bool memory_partition_unit::phy_take_hbm(unsigned bytes) {
++  if (m_phy_rate <= 0) return true;
++  if (m_phy_tokens <= 0.0) {
++    m_phy_hbm_waiting = true;
++    m_hbf_system->attach_stats().phy_hbm_stall_ticks++;
++    return false;
++  }
++  m_phy_tokens -= bytes;
++  m_hbf_system->attach_stats().phy_hbm_bytes += bytes;
++  return true;
++}
++
+ void memory_partition_unit::simple_dram_model_cycle() {
+   // pop completed memory request from dram and push it to dram-to-L2 queue
+   // of the original sub partition
+@@ -458,6 +583,11 @@ void memory_partition_unit::dram_cycle() {
+       // Skip HBF-addressed requests — handled by hbf_cycle()
+       if (m_config->is_hbf_addr(mf->get_addr())) continue;
+ 
++      // attach 2: HBM requests share the PHY with HBF replies.
++      if (m_config->hbf_attach == 2 && m_hbf_system &&
++          !phy_take_hbm(mf->get_data_size()))
++        break;
++
+       m_sub_partition[spid]->L2_dram_queue_pop();
+       MEMPART_DPRINTF(
+           "Issue mem_fetch request %p from sub partition %d to dram\n", mf,
+@@ -576,6 +706,8 @@ memory_sub_partition::memory_sub_partition(
+          &dram_L2, &L2_icnt);
+   m_icnt_L2_queue = new fifo_pipeline<mem_fetch>("icnt-to-L2", 0, icnt_L2);
+   m_L2_dram_queue = new fifo_pipeline<mem_fetch>("L2-to-dram", 0, L2_dram);
++  m_L2_hbf_queue = new fifo_pipeline<mem_fetch>(
++      "L2-to-hbf", 0, m_config->hbf_l2_queue_size ? m_config->hbf_l2_queue_size : 1);
+   m_dram_L2_queue = new fifo_pipeline<mem_fetch>("dram-to-L2", 0, dram_L2);
+   m_L2_icnt_queue = new fifo_pipeline<mem_fetch>("L2-to-icnt", 0, L2_icnt);
+   wb_addr = -1;
+@@ -593,6 +725,7 @@ memory_sub_partition::~memory_sub_partition() {
+   delete m_lrc;
+   delete m_icnt_L2_queue;
+   delete m_L2_dram_queue;
++  delete m_L2_hbf_queue;
+   delete m_dram_L2_queue;
+   delete m_L2_icnt_queue;
+   delete m_L2cache;
+@@ -698,10 +831,10 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
+       // L2->DRAM queue capacity (the original patch pushed unconditionally).
+       if (m_config->is_hbf_addr(mf->get_addr()) &&
+           m_config->hbf_l2_policy == 0) {
+-        if (!m_L2_dram_queue->full()) {
++        if (!memory_queue_full(mf)) {
+           mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE,
+                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+-          m_L2_dram_queue->push(mf);
++          memory_queue_push(mf);
+           if (from_icnt) {
+             m_icnt_L2_queue->pop();
+           } else {
+@@ -774,11 +907,11 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
+           }
+         }
+       }
+-    } else if (!m_L2_dram_queue->full()) {
++    } else if (!memory_queue_full(mf)) {
+       // L2 is disabled or non-texture access to texture-only L2
+       mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE,
+                      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+-      m_L2_dram_queue->push(mf);
++      memory_queue_push(mf);
+       if (from_icnt) {
+         m_icnt_L2_queue->pop();
+       } else {
+@@ -822,6 +955,22 @@ class mem_fetch *memory_sub_partition::L2_dram_queue_top() const {
+ 
+ void memory_sub_partition::L2_dram_queue_pop() { m_L2_dram_queue->pop(); }
+ 
++bool memory_sub_partition::uses_hbf_queue(const mem_fetch *mf) const {
++  return m_config->hbf_attach >= 1 &&
++         m_config->is_hbf_addr(mf->get_addr());
++}
++
++bool memory_sub_partition::memory_queue_full(const mem_fetch *mf) const {
++  return uses_hbf_queue(mf) ? m_L2_hbf_queue->full() : m_L2_dram_queue->full();
++}
++
++void memory_sub_partition::memory_queue_push(mem_fetch *mf) {
++  if (uses_hbf_queue(mf))
++    m_L2_hbf_queue->push(mf);
++  else
++    m_L2_dram_queue->push(mf);
++}
++
+ bool memory_sub_partition::dram_L2_queue_full() const {
+   return m_dram_L2_queue->full();
+ }
+@@ -1185,7 +1334,7 @@ void L2interface::push(mem_fetch *mf) {
+   mf->set_status(
+       IN_PARTITION_L2_TO_DRAM_QUEUE,
+       m_unit->m_gpu->gpu_sim_cycle + m_unit->m_gpu->gpu_tot_sim_cycle);
+-  m_unit->m_L2_dram_queue->push(mf);
++  m_unit->memory_queue_push(mf);
+ }
+ 
+ void Chipletinterface::push(mem_fetch *mf) {
+@@ -1217,7 +1366,12 @@ void l2_cache::cycle() {
+       // This request belongs to the same chiplet, send it to DRAM
+       // for writes, a seperate WRITE_FORWARD is generated
+       // always write to local
+-      if (!m_memport->full(mf->size(), mf->get_is_write())) {
++      // The L2's memory port is an L2interface; ask it about this request's
++      // tier so a full L2->HBF queue cannot block HBM misses (attach 1/2).
++      const L2interface *l2if = dynamic_cast<const L2interface *>(m_memport);
++      bool port_full = l2if ? l2if->full(mf)
++                            : m_memport->full(mf->size(), mf->get_is_write());
++      if (!port_full) {
+         m_miss_queue.pop_front();
+         m_memport->push(mf);
+       } else {
+diff --git a/src/gpgpu-sim/l2cache.h b/src/gpgpu-sim/l2cache.h
+index 1343f865..de17941b 100644
+--- a/src/gpgpu-sim/l2cache.h
++++ b/src/gpgpu-sim/l2cache.h
+@@ -35,6 +35,7 @@
+ #include <algorithm>
+ #include <cstdint>
+ #include <deque>
++#include <unordered_map>
+ #include "../abstract_hardware_model.h"
+ #include "dram.h"
+ #include "hbf_system.h"
+@@ -262,6 +263,10 @@ class memory_partition_unit {
+ 
+   void set_done(mem_fetch *mf);
+ 
++  // attach 2 (HBF behind HBM): may an HBM request of `bytes` use the shared
++  // PHY this DRAM tick?  Charges the bucket when it returns true.
++  bool phy_take_hbm(unsigned bytes);
++
+   void visualizer_print(gzFile visualizer_file) const;
+   void print_stat(FILE *fp) {
+     m_dram->print_stat(fp);
+@@ -298,6 +303,23 @@ class memory_partition_unit {
+   class dram_interface *m_dram;  // dram_t or ramulator_dram_t
+   class hbf_system_t *m_hbf_system;
+ 
++  // -gpgpu_hbf_attach 1/2: own credit pool, front-end latency queue and
++  // (attach 2) the PHY token bucket shared with HBM traffic.
++  bool hbf_direct_cycle();
++  unsigned m_hbf_credits_used;
++  unsigned long long m_hbf_frontend_cycles;  // core cycles
++  struct hbf_delay_t {
++    unsigned long long ready_cycle;
++    mem_fetch *req;
++  };
++  std::deque<hbf_delay_t> m_hbf_frontend_queue;
++  std::unordered_map<mem_fetch *, unsigned long long> m_hbf_issue_cycle;
++  double m_phy_tokens;       // bytes; may go negative by one request
++  double m_phy_rate;         // bytes per DRAM tick
++  double m_phy_cap;          // burst
++  bool m_phy_hbm_turn;       // alternate priority when both tiers wait
++  bool m_phy_hbm_waiting;    // an HBM request was blocked by the PHY last tick
++
+   class arbitration_metadata {
+    public:
+     arbitration_metadata(const memory_config *config);
+@@ -380,6 +402,15 @@ class memory_sub_partition {
+   class mem_fetch *L2_dram_queue_top() const;
+   void L2_dram_queue_pop();
+ 
++  // -gpgpu_hbf_attach 1/2: HBF-window requests leave the L2 through their own
++  // queue so neither tier can head-of-line block the other.
++  bool uses_hbf_queue(const mem_fetch *mf) const;
++  bool memory_queue_full(const mem_fetch *mf) const;  // queue mf would enter
++  void memory_queue_push(mem_fetch *mf);
++  bool L2_hbf_queue_empty() const { return m_L2_hbf_queue->empty(); }
++  class mem_fetch *L2_hbf_queue_top() const { return m_L2_hbf_queue->top(); }
++  void L2_hbf_queue_pop() { m_L2_hbf_queue->pop(); }
++
+   // interface to dram_L2_queue
+   bool dram_L2_queue_full() const;
+   void dram_L2_queue_push(class mem_fetch *mf);
+@@ -430,6 +461,7 @@ class memory_sub_partition {
+   // these are various FIFOs between units within a memory partition
+   fifo_pipeline<mem_fetch> *m_icnt_L2_queue;
+   fifo_pipeline<mem_fetch> *m_L2_dram_queue;
++  fifo_pipeline<mem_fetch> *m_L2_hbf_queue;  // attach 1/2 only
+   fifo_pipeline<mem_fetch> *m_dram_L2_queue;
+   fifo_pipeline<mem_fetch> *m_L2_icnt_queue;  // L2 cache hit response queue
+   chiplet_icnt m_chiplet_icnt;
+@@ -468,6 +500,11 @@ class L2interface : public mem_fetch_interface {
+     // assume read and write packets all same size
+     return m_unit->m_L2_dram_queue->full();
+   }
++  // Address-aware variant: with a separate L2->HBF queue the queue a miss
++  // enters depends on its tier.
++  bool full(const mem_fetch *mf) const {
++    return m_unit->memory_queue_full(mf);
++  }
+   virtual void push(mem_fetch *mf);
+ 
+  private:
+diff --git a/src/gpgpu-sim/mem_fetch.h b/src/gpgpu-sim/mem_fetch.h
+index 343eac8a..c14e84e2 100644
+--- a/src/gpgpu-sim/mem_fetch.h
++++ b/src/gpgpu-sim/mem_fetch.h
+@@ -141,6 +141,7 @@ class mem_fetch {
+   }
+   const warp_inst_t &get_inst() { return *m_inst; }
+   enum mem_fetch_status get_status() const { return m_status; }
++  unsigned long long get_status_change_cycle() const { return m_status_change; }
+ 
+   const memory_config *get_mem_config() { return m_mem_config; }
+ 
+-- 
+2.43.0
+

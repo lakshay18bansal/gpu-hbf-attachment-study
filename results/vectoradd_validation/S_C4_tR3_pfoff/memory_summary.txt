@@ -1,0 +1,2 @@
+HBM2E: 8 channels x 128-bit at 3024 Mbps/pin = 387.1 GB/s peak; clock 1512.9 MHz (tCK 661 ps); refresh allbank; mapper GPUBgCoBaRo; buffers 64/64; fixed latency 134.752 ns; organization per channel: stack_height=8 pseudochannel=2 sid=2 bankgroup=4 bank=4 row=32768 column=128 dq=64 channel_density=16384
+  timings (cycles): nCL=22 (14.54 ns), nRCDRD=22 (14.54 ns), nRP=22 (14.54 ns), nRAS=51 (33.71 ns), nRC=72 (47.59 ns), nBL=2 (1.32 ns), nCCDS=2 (1.32 ns), nCCDL=4 (2.64 ns), nRRDS=7 (4.63 ns), nFAW=24 (15.86 ns), nWR=24 (15.86 ns)

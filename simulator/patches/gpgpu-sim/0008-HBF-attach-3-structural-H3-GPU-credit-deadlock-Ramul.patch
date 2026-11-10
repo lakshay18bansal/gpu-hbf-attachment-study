@@ -1,0 +1,905 @@
+From 954030641884f5d371232e2d2db580cebfee3250 Mon Sep 17 00:00:00 2001
+From: Lakshay <lakshay810bansal@gmail.com>
+Date: Mon, 9 Nov 2026 10:16:56 +0000
+Subject: [PATCH 8/8] HBF attach 3 (structural H3), GPU
+ credit/deadlock/Ramulator front-end options
+
+-gpgpu_hbf_attach 3 models H3 with an unmodified GPU. The GPU has no tier
+check: memory_config::gpu_routes_hbf() is false, so every L2 miss is cached,
+takes the L2->DRAM queue and the partition's DRAM credits, and crosses the
+GPU<->HBM link (token bucket of -gpgpu_hbf_phy_gbps charging write payload
+down and read data up, for both tiers). h3_dram_cycle() replaces dram_cycle():
+the GPU MC feeds the HBM base die's ingress FIFO, whose router sends HBM
+addresses to the HBM controller and HBF addresses through the GPU front end
+(a latency pipeline) and a D2D queue (-gpgpu_hbf_h3_queue_size) to the HBF
+stack. Replies return through the base die and the link.
+- -gpgpu_hbf_d2d_hop[_ns]: D2D round trip added to every NAND operation;
+  LHB hits (LHB in the HBM base die) skip it and the HBF channel link
+- -gpgpu_hbf_h3_{issues,admits,returns}_per_tick (default 1)
+- attach 3 needs one stack, no page cache, an HBF window and the DRAM model
+- stats: base-die routing, router stalls, credit max/limit, link bytes
+
+Also:
+- attach 0: HBF requests can pay -gpgpu_hbf_frontend_latency_ns in a
+  pipeline bounded by the DRAM credits (0 keeps the old path exactly)
+- -gpgpu_dram_max_outstanding: GPU-side DRAM credits per partition
+- -gpgpu_ramulator_frontend_pipeline: only requests past Ramulator's fixed
+  front-end latency count against the bridge buffer
+- -gpgpu_deadlock_window: deadlock check interval in cycles
+
+Every new option defaults to the earlier behaviour. Attach 0/1/2 runs of the
+earlier routing validation, and vectorAdd C1-C4 of hbfsim_4arch, reproduce
+to the cycle.
+---
+ src/gpgpu-sim/gpu-sim.cc        | 110 +++++++++++--
+ src/gpgpu-sim/gpu-sim.h         |  36 +++-
+ src/gpgpu-sim/hbf_controller.cc |  23 ++-
+ src/gpgpu-sim/hbf_controller.h  |   6 +
+ src/gpgpu-sim/hbf_system.cc     |  31 +++-
+ src/gpgpu-sim/hbf_system.h      |  12 +-
+ src/gpgpu-sim/l2cache.cc        | 280 +++++++++++++++++++++++++++++++-
+ src/gpgpu-sim/l2cache.h         |  26 +++
+ src/gpgpu-sim/ramulator_dram.cc |  13 +-
+ 9 files changed, 502 insertions(+), 35 deletions(-)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index 298cc051..689a7957 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -256,6 +256,12 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          "Ramulator 2.1 YAML config of the whole DRAM system "
+                          "(one controller per memory channel)",
+                          "");
++  option_parser_register(opp, "-gpgpu_ramulator_frontend_pipeline", OPT_BOOL,
++                         &ramulator_frontend_pipeline,
++                         "1 = Ramulator's fixed front-end latency is a pipeline (only requests past it "
++                         "count against the bridge buffer); 0 = they occupy the buffer while they wait "
++                         "(default 0)",
++                         "0");
+   option_parser_register(opp, "-gpgpu_simple_dram_clock_multiplier", OPT_UINT32,
+                          &simple_dram_clock_multiplier,
+                          "clock multiplier for simple dram model (default = 1)",
+@@ -597,18 +603,51 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          "0");
+   option_parser_register(opp, "-gpgpu_hbf_attach", OPT_INT32, &hbf_attach,
+                          "HBF attachment: 0=legacy (shares DRAM queue and credits), "
+-                         "1=direct (own queue and credits), 2=behind HBM (1 + shared PHY) (default 0)",
++                         "1=direct (own queue and credits), 2=behind HBM (1 + shared PHY), "
++                         "3=H3 (GPU sends everything to HBM; the HBM base die routes to HBF) (default 0)",
+                          "0");
+   option_parser_register(opp, "-gpgpu_hbf_credits", OPT_UINT32, &hbf_credits,
+                          "attach 1/2: outstanding HBF requests per memory partition (default 32768)",
+                          "32768");
+   option_parser_register(opp, "-gpgpu_hbf_frontend_latency_ns", OPT_DOUBLE,
+                          &hbf_frontend_latency_ns,
+-                         "attach 1/2: fixed latency added to every HBF request (GPU MC + PHY, "
+-                         "+ base-die/D2D hop behind HBM), in ns (default 0)",
++                         "fixed latency added to every HBF request (GPU MC + PHY; attach 2: + "
++                         "base-die/D2D hop behind HBM; attach 3: the hop is -gpgpu_hbf_d2d_hop), "
++                         "in ns (default 0)",
+                          "0");
+   option_parser_register(opp, "-gpgpu_hbf_phy_gbps", OPT_DOUBLE, &hbf_phy_gbps,
+-                         "attach 2: GB/s of the per-partition PHY shared by HBM and HBF bytes; 0=unlimited (default 0)",
++                         "attach 2/3: GB/s of the per-partition PHY shared by HBM and HBF bytes; 0=unlimited (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_h3_queue_size", OPT_UINT32,
++                         &hbf_h3_queue_size,
++                         "attach 3: HBM base-die ingress queue and D2D (to HBF) queue entries per partition (default 64)",
++                         "64");
++  option_parser_register(opp, "-gpgpu_hbf_h3_issues_per_tick", OPT_UINT32,
++                         &hbf_h3_issues_per_tick,
++                         "attach 3: requests per partition per DRAM tick that the GPU MC issues and the "
++                         "base-die router decodes (default 1)",
++                         "1");
++  option_parser_register(opp, "-gpgpu_hbf_h3_admits_per_tick", OPT_UINT32,
++                         &hbf_h3_admits_per_tick,
++                         "attach 3: requests per partition per DRAM tick admitted from the D2D queue "
++                         "into the HBF stack (default 1)",
++                         "1");
++  option_parser_register(opp, "-gpgpu_hbf_h3_returns_per_tick", OPT_UINT32,
++                         &hbf_h3_returns_per_tick,
++                         "attach 3: HBF replies per partition per DRAM tick, at most one per "
++                         "sub-partition (default 1)",
++                         "1");
++  option_parser_register(opp, "-gpgpu_hbf_d2d_hop", OPT_UINT32, &hbf_d2d_hop,
++                         "attach 3: HBM base die <-> HBF base die round trip added to every NAND operation, "
++                         "in DRAM ticks (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_hbf_d2d_hop_ns", OPT_DOUBLE, &hbf_d2d_hop_ns,
++                         "attach 3: -gpgpu_hbf_d2d_hop in ns; overrides the tick value when > 0 (default 0)",
++                         "0");
++  option_parser_register(opp, "-gpgpu_dram_max_outstanding", OPT_INT32,
++                         &dram_max_outstanding,
++                         "GPU-side DRAM requests in flight per memory partition (arbitration credits); "
++                         "0 = the DRAM model's own limit (default 0)",
+                          "0");
+   option_parser_register(opp, "-gpgpu_hbf_prefetch_file", OPT_CSTR,
+                          &hbf_prefetch_file,
+@@ -1044,6 +1083,11 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
+   option_parser_register(
+       opp, "-gpgpu_deadlock_detect", OPT_BOOL, &gpu_deadlock_detect,
+       "Stop the simulation at deadlock (1=on (default), 0=off)", "1");
++  option_parser_register(
++      opp, "-gpgpu_deadlock_window", OPT_UINT32, &gpu_deadlock_window,
++      "Deadlock = no instruction committed for this many cycles; 0 = GPGPU-Sim's "
++      "built-in intervals (default 0)",
++      "0");
+   option_parser_register(
+       opp, "-gpgpu_ptx_instruction_classification", OPT_INT32,
+       &(gpgpu_ctx->func_sim->gpgpu_ptx_instruction_classification),
+@@ -1692,6 +1736,7 @@ void memory_config::resolve_hbf_timings(double dram_freq_hz) {
+       {"read_agg_window", hbf_read_agg_window_ns, &hbf_read_agg_window},
+       {"idle_drain_quiet", hbf_idle_drain_quiet_ns, &hbf_idle_drain_quiet},
+       {"lhb_hit_latency", hbf_lhb_hit_latency_ns, &hbf_lhb_hit_latency},
++      {"d2d_hop", hbf_d2d_hop_ns, &hbf_d2d_hop},
+   };
+   std::string line;
+   char buf[160];
+@@ -1708,20 +1753,51 @@ void memory_config::resolve_hbf_timings(double dram_freq_hz) {
+            dram_freq_hz / 1e6,
+            ramulator_enabled ? "Ramulator tCK" : "-gpgpu_clock_domains",
+            line.c_str());
+-    if (hbf_attach >= 1 && hbf_credits == 0) {
++    if ((hbf_attach == 1 || hbf_attach == 2) && hbf_credits == 0) {
+       fprintf(stderr, "HBF: -gpgpu_hbf_credits must be at least 1\n");
+       exit(1);
+     }
+-    if (hbf_attach < 0 || hbf_attach > 2) {
+-      fprintf(stderr, "HBF: -gpgpu_hbf_attach must be 0, 1 or 2\n");
++    if (hbf_attach < 0 || hbf_attach > 3) {
++      fprintf(stderr, "HBF: -gpgpu_hbf_attach must be 0, 1, 2 or 3\n");
+       exit(1);
+     }
+-    printf("GPGPU-Sim uArch: HBF attach=%d (%s) credits/partition=%u "
+-           "frontend=%.2f ns phy=%.2f GB/s/partition l2_hbf_queue=%u\n",
+-           hbf_attach,
+-           hbf_attach == 0 ? "legacy" : hbf_attach == 1 ? "direct" : "behind-HBM",
+-           hbf_credits, hbf_frontend_latency_ns, hbf_phy_gbps,
+-           hbf_l2_queue_size);
++    if (hbf_attach == 3) {
++      if (hbf_h3_queue_size == 0) {
++        fprintf(stderr, "HBF: -gpgpu_hbf_h3_queue_size must be at least 1\n");
++        exit(1);
++      }
++      if (hbf_h3_issues_per_tick == 0 || hbf_h3_admits_per_tick == 0 ||
++          hbf_h3_returns_per_tick == 0) {
++        fprintf(stderr, "HBF: -gpgpu_hbf_h3_{issues,admits,returns}_per_tick must be at least 1\n");
++        exit(1);
++      }
++      if (hbf_route_all) {
++        fprintf(stderr, "HBF: -gpgpu_hbf_attach 3 needs an HBF address window (route_all 0)\n");
++        exit(1);
++      }
++      if (hbf_num_stacks != 1) {
++        fprintf(stderr, "HBF: -gpgpu_hbf_attach 3 models one HBF stack behind the HBM base die "
++                "(-gpgpu_hbf_num_stacks 1)\n");
++        exit(1);
++      }
++      if (hbf_cache_entries != 0) {
++        fprintf(stderr, "HBF: -gpgpu_hbf_attach 3 needs -gpgpu_hbf_cache_entries 0 (the HBF "
++                "logic-die page cache would sit behind the D2D hop; use the LHB)\n");
++        exit(1);
++      }
++      printf("GPGPU-Sim uArch: HBF attach=3 (H3: GPU -> HBM link -> HBM base die "
++             "router -> HBM controller | D2D -> HBF) link=%.3f GB/s/partition "
++             "base_die_queue=%u frontend=%.2f ns d2d_hop=%u ticks/%.2f ns\n",
++             hbf_phy_gbps, hbf_h3_queue_size, hbf_frontend_latency_ns, hbf_d2d_hop,
++             hbf_d2d_hop * 1e9 / dram_freq_hz);
++    } else {
++      printf("GPGPU-Sim uArch: HBF attach=%d (%s) credits/partition=%u "
++             "frontend=%.2f ns phy=%.2f GB/s/partition l2_hbf_queue=%u\n",
++             hbf_attach,
++             hbf_attach == 0 ? "legacy" : hbf_attach == 1 ? "direct" : "behind-HBM",
++             hbf_credits, hbf_frontend_latency_ns, hbf_phy_gbps,
++             hbf_l2_queue_size);
++    }
+   }
+ }
+ 
+@@ -2890,7 +2966,9 @@ void gpgpu_sim::cycle() {
+       perf_counters.print_counters();
+     }
+ 
+-    if (!(gpu_sim_cycle % 50000)) {
++    if (!(gpu_sim_cycle % (m_config.gpu_deadlock_window
++                               ? m_config.gpu_deadlock_window
++                               : 50000))) {
+       // deadlock detection
+       if (m_config.gpu_deadlock_detect && gpu_sim_insn == last_gpu_sim_insn) {
+         gpu_deadlock = true;
+@@ -3179,7 +3257,9 @@ void sst_gpgpu_sim::SST_cycle() {
+     }
+   }
+ 
+-  if (!(gpu_sim_cycle % 20000)) {
++  if (!(gpu_sim_cycle % (m_config.gpu_deadlock_window
++                             ? m_config.gpu_deadlock_window
++                             : 20000))) {
+     // deadlock detection
+     if (m_config.gpu_deadlock_detect && gpu_sim_insn == last_gpu_sim_insn) {
+       gpu_deadlock = true;
+diff --git a/src/gpgpu-sim/gpu-sim.h b/src/gpgpu-sim/gpu-sim.h
+index 64cf5034..234ab4f7 100644
+--- a/src/gpgpu-sim/gpu-sim.h
++++ b/src/gpgpu-sim/gpu-sim.h
+@@ -477,6 +477,11 @@ class memory_config {
+   // Ramulator 2.1 as the DRAM model (see ramulator_dram.h)
+   bool ramulator_enabled;
+   char *ramulator_config;
++  // 1: the fixed front-end latency is a pipeline; only requests that have
++  // passed it count against the bridge buffer (read + write buffer sizes).
++  // 0: requests waiting out the latency occupy that buffer too, which caps a
++  // channel at buffer x 32 B / latency.
++  bool ramulator_frontend_pipeline;
+   bool SST_mode;
+   bool lrc_enabled;
+   unsigned lrc_max_entries;
+@@ -586,11 +591,29 @@ class memory_config {
+   //       per-sub-partition queue and use their own credit pool.
+   //   2 = behind HBM (H3): as 1, and HBM and HBF bytes of a partition share
+   //       one PHY token bucket of hbf_phy_gbps (the HBM stack's GPU link).
++  //   3 = H3, structural: the GPU does not know the HBF tier.  Every L2 miss
++  //       takes the partition's L2->DRAM queue and DRAM credits and crosses
++  //       the GPU<->HBM link (token bucket of hbf_phy_gbps, both directions);
++  //       the HBM base die decodes the address and sends it to the HBM
++  //       controller or over the D2D link (hbf_d2d_hop) to the HBF stack.
+   int hbf_attach;
+   unsigned hbf_credits;              // attach 1/2: outstanding HBF requests per partition
+-  double hbf_frontend_latency_ns;    // attach 1/2: added to every HBF request
+-  double hbf_phy_gbps;               // attach 2: per-partition shared PHY bandwidth
++  double hbf_frontend_latency_ns;    // added to every HBF request (all attach modes)
++  double hbf_phy_gbps;               // attach 2/3: per-partition shared PHY bandwidth
+   unsigned hbf_l2_queue_size;        // attach 1/2: L2->HBF queue entries per sub-partition
++  unsigned hbf_h3_queue_size;        // attach 3: base-die ingress and D2D queue entries
++  // attach 3 per-partition, per-DRAM-tick rates (default 1 each): requests the
++  // GPU MC issues onto the link and the base-die router decodes; requests the
++  // D2D port admits into the HBF stack; HBF replies returned (at most one per
++  // sub-partition).
++  unsigned hbf_h3_issues_per_tick;
++  unsigned hbf_h3_admits_per_tick;
++  unsigned hbf_h3_returns_per_tick;
++  // attach 3: HBM base die <-> HBF base die round trip, added to every NAND
++  // operation (not to LHB hits: the LHB sits in the HBM base die).  DRAM ticks.
++  unsigned hbf_d2d_hop;
++  double hbf_d2d_hop_ns;
++  int dram_max_outstanding;          // GPU-side DRAM credits per partition (0 = DRAM model's)
+ 
+   // Prefetcher + latency-hiding buffer (one stack only).  The hint file lists,
+   // per kernel launch (1-based launch order = kernel uid), the HBF-relative
+@@ -608,6 +631,12 @@ class memory_config {
+     if (hbf_route_all) return true;
+     return (addr >= hbf_base_addr && addr < hbf_base_addr + hbf_size);
+   }
++  // The GPU side (L2 bypass, L2->memory queues, partition arbitration) routes
++  // this address to the HBF tier.  With attach 3 the GPU cannot tell the tiers
++  // apart; only the HBM base die decodes the HBF window.
++  bool gpu_routes_hbf(new_addr_type addr) const {
++    return hbf_attach != 3 && is_hbf_addr(addr);
++  }
+ 
+   gpgpu_context *gpgpu_ctx;
+ };
+@@ -706,6 +735,9 @@ class gpgpu_sim_config : public power_config,
+   bool gpgpu_flush_l1_cache;
+   bool gpgpu_flush_l2_cache;
+   bool gpu_deadlock_detect;
++  // cycles without a committed instruction that count as a deadlock; 0 keeps
++  // GPGPU-Sim's built-in check intervals (50000 / 20000)
++  unsigned gpu_deadlock_window;
+   int gpgpu_frfcfs_dram_sched_queue_size;
+   int gpgpu_cflog_interval;
+   char *gpgpu_clock_domains;
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 8ef43210..4dc7bd97 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -137,6 +137,8 @@ hbf_controller_t::hbf_controller_t(unsigned partition_id,
+   m_pf_inflight = 0;
+   m_pf_next_idx = m_pf_end_idx = m_pf_demand_front = 0;
+   m_lhb_hit_ticks = m_config->hbf_lhb_hit_latency > 0 ? m_config->hbf_lhb_hit_latency : 1;
++  m_d2d_hop_ticks = m_config->hbf_attach == 3 ? m_config->hbf_d2d_hop : 0;
++  m_lhb_in_hbm_base_die = m_config->hbf_attach == 3;
+   if (m_config->hbf_prefetch_file && m_config->hbf_prefetch_file[0] != '\0') {
+     if (!m_config->hbf_mshr_enabled) {
+       fprintf(stderr, "HBF: the prefetcher needs -gpgpu_hbf_mshr_enabled 1\n");
+@@ -726,7 +728,7 @@ void hbf_controller_t::cycle() {
+       // Find the MSHR entry this sub-array was serving.
+       for (auto &kv : m_mshr) {
+         if (kv.second.op_state != OP_WAITING && kv.second.subarray_id == i &&
+-            !kv.second.delivery_pending) {
++            !kv.second.delivery_pending && kv.second.d2d_ready_tick == 0) {
+           if (kv.second.op_state == OP_ERASING) {
+             // Erase completion: block is now erased; no data to deliver.
+             // Re-queue the entry so schedule_operations() issues the PROGRAM.
+@@ -738,10 +740,14 @@ void hbf_controller_t::cycle() {
+             kv.second.op_state = OP_WAITING;
+             m_mshr_queue.push_back(kv.first);
+           } else {
+-            // Read/program completion: mark for incremental delivery.
++            // Read/program completion: mark for incremental delivery
++            // (attach 3: after the D2D hop to the HBM base die).
+             kv.second.fill_cache_on_deliver =
+                 (kv.second.op_state == OP_READING);
+-            kv.second.delivery_pending = true;
++            if (m_d2d_hop_ticks > 0)
++              kv.second.d2d_ready_tick = current_tick + m_d2d_hop_ticks;
++            else
++              kv.second.delivery_pending = true;
+           }
+           break;
+         }
+@@ -752,13 +758,18 @@ void hbf_controller_t::cycle() {
+     }
+   }
+ 
+-  // Cache hits use the same incremental delivery path as completed NAND ops.
++  // Cache hits use the same incremental delivery path as completed NAND ops,
++  // and so do NAND ops whose data has crossed the D2D hop (attach 3).
+   for (auto &kv : m_mshr) {
+     if (!kv.second.delivery_pending &&
+         kv.second.cache_hit_ready_tick != 0 &&
+         current_tick >= kv.second.cache_hit_ready_tick) {
+       kv.second.delivery_pending = true;
+     }
++    if (!kv.second.delivery_pending && kv.second.d2d_ready_tick != 0 &&
++        current_tick >= kv.second.d2d_ready_tick) {
++      kv.second.delivery_pending = true;
++    }
+   }
+ 
+   // Step 2: Deliver as many completed requests as the return queue and link
+@@ -807,6 +818,10 @@ void hbf_controller_t::cycle() {
+     while (delivered < delivery_limit) {
+       mem_fetch *mf = it->second.pending[delivered];
+       unsigned transfer_bytes = mf->get_is_write() ? 0 : mf->get_data_size();
++      // attach 3: an LHB hit is served by the HBM base die, not over the
++      // HBF channel link.
++      if (m_lhb_in_hbm_base_die && it->second.cache_hit_ready_tick != 0)
++        transfer_bytes = 0;
+       if (transfer_bytes > 0 && !ch->try_consume_credit(transfer_bytes)) {
+         credit_stalled = true;
+         break;
+diff --git a/src/gpgpu-sim/hbf_controller.h b/src/gpgpu-sim/hbf_controller.h
+index 7833e8db..5c30c7f4 100644
+--- a/src/gpgpu-sim/hbf_controller.h
++++ b/src/gpgpu-sim/hbf_controller.h
+@@ -417,6 +417,7 @@ class hbf_controller_t {
+     unsigned long long requested_bytes;
+     unsigned write_covered_bytes;    // unique bytes in this write aggregation window
+     unsigned long long cache_hit_ready_tick;  // 0 = no cache hit; >0 = ready at this HBF tick
++    unsigned long long d2d_ready_tick;  // attach 3: NAND op done, data/ack crossing the D2D hop
+     std::vector<mem_fetch *> pending; // requests waiting for this page
+   };
+   std::map<unsigned long long, mshr_entry_t> m_mshr;
+@@ -442,6 +443,11 @@ class hbf_controller_t {
+   unsigned m_pf_window;
+   unsigned m_pf_undemanded;
+   unsigned m_lhb_hit_ticks;
++  // attach 3 (H3): HBM base die <-> HBF base die round trip added to every
++  // NAND operation; the LHB is in the HBM base die, so LHB hits skip it and
++  // do not use the HBF channel link.
++  unsigned m_d2d_hop_ticks;
++  bool m_lhb_in_hbm_base_die;
+   void issue_prefetches();
+   unsigned m_pf_only_entries;          // MSHR entries with no requester yet
+   unsigned m_pf_inflight;              // prefetch reads queued or on a sub-array
+diff --git a/src/gpgpu-sim/hbf_system.cc b/src/gpgpu-sim/hbf_system.cc
+index ef8d3182..0c71ecd4 100644
+--- a/src/gpgpu-sim/hbf_system.cc
++++ b/src/gpgpu-sim/hbf_system.cc
+@@ -221,14 +221,33 @@ void hbf_system_t::print_stat(FILE *fp) {
+   if (m_config->hbf_attach >= 1) {
+     const hbf_attach_stats_t &a = m_attach_stats;
+     fprintf(fp, "HBF Attach Mode:        %d (%s)\n", m_config->hbf_attach,
+-            m_config->hbf_attach == 1 ? "direct" : "behind-HBM");
++            m_config->hbf_attach == 1   ? "direct"
++            : m_config->hbf_attach == 2 ? "behind-HBM"
++                                        : "H3 (HBM base die router)");
+     fprintf(fp, "HBF Attach Admitted:    %llu\n", a.admitted);
+     fprintf(fp, "HBF Attach Returned:    %llu\n", a.returned);
+-    fprintf(fp, "HBF Credits Max Used:   %llu (limit %u per partition)\n",
+-            a.max_credits_used, m_config->hbf_credits);
+-    fprintf(fp, "HBF Credits Avg Used:   %.2f\n",
+-            a.credit_samples ? a.credit_used_sum / a.credit_samples : 0.0);
+-    fprintf(fp, "HBF Credit Block Ticks: %llu\n", a.credit_block_ticks);
++    if (m_config->hbf_attach == 3) {
++      fprintf(fp, "H3 Base Die Routed:     hbm=%llu hbf=%llu router_stall_ticks=%llu\n",
++              a.h3_routed_hbm, a.h3_routed_hbf, a.h3_router_stall_ticks);
++      fprintf(fp, "H3 GPU DRAM Credits:    max_used=%llu limit=%llu per partition (shared by HBM and HBF)\n",
++              a.h3_max_dram_credits, a.h3_dram_credit_limit);
++      fprintf(fp, "H3 Link:                %.3f GB/s/partition down_bytes=%llu up_hbm_bytes=%llu "
++              "up_hbf_bytes=%llu down_stall_ticks=%llu hbm_stall_ticks=%llu hbf_stall_ticks=%llu\n",
++              m_config->hbf_phy_gbps, a.phy_down_bytes, a.phy_hbm_bytes,
++              a.phy_hbf_bytes, a.phy_down_stall_ticks, a.phy_hbm_stall_ticks,
++              a.phy_hbf_stall_ticks);
++      fprintf(fp, "H3 D2D Hop:             %u ticks (%.2f ns) per NAND operation\n",
++              m_config->hbf_d2d_hop,
++              m_config->hbf_dram_freq_hz > 0
++                  ? m_config->hbf_d2d_hop * 1e9 / m_config->hbf_dram_freq_hz
++                  : 0.0);
++    } else {
++      fprintf(fp, "HBF Credits Max Used:   %llu (limit %u per partition)\n",
++              a.max_credits_used, m_config->hbf_credits);
++      fprintf(fp, "HBF Credits Avg Used:   %.2f\n",
++              a.credit_samples ? a.credit_used_sum / a.credit_samples : 0.0);
++      fprintf(fp, "HBF Credit Block Ticks: %llu\n", a.credit_block_ticks);
++    }
+     fprintf(fp, "HBF E2E Read Latency:   avg=%.1f p50=%llu p95=%llu p99=%llu max=%llu core cycles (%llu reqs)\n",
+             a.lat_count ? a.lat_sum / a.lat_count : 0.0, a.percentile(0.50),
+             a.percentile(0.95), a.percentile(0.99), a.lat_max, a.lat_count);
+diff --git a/src/gpgpu-sim/hbf_system.h b/src/gpgpu-sim/hbf_system.h
+index b9a2e98c..247153fe 100644
+--- a/src/gpgpu-sim/hbf_system.h
++++ b/src/gpgpu-sim/hbf_system.h
+@@ -30,7 +30,7 @@ struct hbf_stack_location_t {
+   unsigned long long local_offset;
+ };
+ 
+-// Counters of the partition-side attachment (-gpgpu_hbf_attach 1/2), summed
++// Counters of the partition-side attachment (-gpgpu_hbf_attach 1/2/3), summed
+ // over all memory partitions.  Latency is end to end as the GPU sees it:
+ // from the cycle the request leaves the L2 (enters the L2->HBF queue) to the
+ // cycle its reply enters the DRAM->L2 queue, in core cycles.
+@@ -49,6 +49,16 @@ struct hbf_attach_stats_t {
+   unsigned long long phy_hbm_bytes = 0;
+   unsigned long long phy_hbf_stall_ticks = 0;  // a ready HBF return waited for the PHY
+   unsigned long long phy_hbm_stall_ticks = 0;  // a ready HBM request waited for the PHY
++  // attach 3 (H3): the GPU<->HBM link carries write payload down (phy_down_*)
++  // and read data up (phy_hbm_bytes / phy_hbf_bytes by source); the HBM base
++  // die router counts what it sent where.
++  unsigned long long phy_down_bytes = 0;
++  unsigned long long phy_down_stall_ticks = 0;
++  unsigned long long h3_routed_hbm = 0;
++  unsigned long long h3_routed_hbf = 0;
++  unsigned long long h3_router_stall_ticks = 0;
++  unsigned long long h3_max_dram_credits = 0;  // GPU-side credits in use (max over partitions)
++  unsigned long long h3_dram_credit_limit = 0;
+   unsigned long long lat_count = 0;
+   unsigned long long lat_max = 0;
+   double lat_sum = 0;
+diff --git a/src/gpgpu-sim/l2cache.cc b/src/gpgpu-sim/l2cache.cc
+index 25a613bb..24eeb5eb 100644
+--- a/src/gpgpu-sim/l2cache.cc
++++ b/src/gpgpu-sim/l2cache.cc
+@@ -137,7 +137,9 @@ memory_partition_unit::memory_partition_unit(
+   else
+ #endif
+     m_dram = new dram_t(m_id, m_config, m_stats, this, gpu);
+-  if (m_dram->max_outstanding() >= 0)
++  if (config->dram_max_outstanding > 0)
++    m_arbitration_metadata.set_max_outstanding(config->dram_max_outstanding);
++  else if (m_dram->max_outstanding() >= 0)
+     m_arbitration_metadata.set_max_outstanding(m_dram->max_outstanding());
+ 
+   // One logical HBF system is shared by all memory partitions.  Partitions
+@@ -146,7 +148,8 @@ memory_partition_unit::memory_partition_unit(
+   m_hbf_credits_used = 0;
+   m_hbf_frontend_cycles = (unsigned long long)llround(
+       config->hbf_frontend_latency_ns * 1e-9 * gpu->get_config().get_core_freq());
+-  m_phy_rate = (config->hbf_attach == 2 && config->hbf_phy_gbps > 0 &&
++  m_phy_rate = ((config->hbf_attach == 2 || config->hbf_attach == 3) &&
++                config->hbf_phy_gbps > 0 &&
+                 config->hbf_dram_freq_hz > 0)
+                    ? config->hbf_phy_gbps * 1e9 / config->hbf_dram_freq_hz
+                    : 0.0;
+@@ -155,6 +158,12 @@ memory_partition_unit::memory_partition_unit(
+   m_phy_tokens = m_phy_cap;
+   m_phy_hbm_turn = false;
+   m_phy_hbm_waiting = false;
++  m_h3_up_first = false;
++  m_h3_hbf_rr = 0;
++  if (config->hbf_attach == 3 && config->simple_dram_model) {
++    fprintf(stderr, "HBF: -gpgpu_hbf_attach 3 does not support the simple DRAM model\n");
++    exit(1);
++  }
+ 
+   m_sub_partition = new memory_sub_partition
+       *[m_config->m_n_sub_partition_per_memory_channel];
+@@ -259,6 +268,18 @@ void memory_partition_unit::arbitration_metadata::return_credit(
+          "DRAM arbitration error: Returning more than available credits!");
+ }
+ 
++int memory_partition_unit::arbitration_metadata::used() const {
++  int n = m_shared_credit;
++  for (int c : m_private_credit) n += c;
++  return n;
++}
++
++int memory_partition_unit::arbitration_metadata::limit() const {
++  if (m_shared_credit_limit == 0) return 0;
++  return m_shared_credit_limit +
++         (int)m_private_credit.size() * m_private_credit_limit;
++}
++
+ void memory_partition_unit::arbitration_metadata::print(FILE *fp) const {
+   fprintf(fp, "private_credit = ");
+   for (unsigned p = 0; p < m_private_credit.size(); p++) {
+@@ -321,6 +342,7 @@ int memory_partition_unit::global_sub_partition_id_to_local_id(
+ // partition's completions and attempts one local admission.
+ bool memory_partition_unit::hbf_cycle() {
+   if (!m_hbf_system) return false;
++  if (m_config->hbf_attach == 3) return h3_hbf_cycle();
+   if (m_config->hbf_attach >= 1) return hbf_direct_cycle();
+ 
+   for (unsigned p = 0;
+@@ -342,6 +364,20 @@ bool memory_partition_unit::hbf_cycle() {
+     }
+   }
+ 
++  // With -gpgpu_hbf_frontend_latency_ns > 0 an HBF request first waits out
++  // the GPU front end (MC + PHY, as DRAM requests do) in an in-order pipeline
++  // bounded only by the DRAM credits it holds; with 0 it goes straight to the
++  // HBF system, as in HBF-Sim.
++  const unsigned long long now =
++      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  while (!m_hbf_frontend_queue.empty() &&
++         m_hbf_frontend_queue.front().ready_cycle <= now) {
++    mem_fetch *mf = m_hbf_frontend_queue.front().req;
++    if (m_hbf_system->full(mf->get_addr(), mf->is_write())) break;
++    m_hbf_frontend_queue.pop_front();
++    m_hbf_system->push(mf);
++  }
++
+   int last_issued_partition = m_arbitration_metadata.last_borrower();
+   for (unsigned p = 0;
+        p < m_config->m_n_sub_partition_per_memory_channel; ++p) {
+@@ -352,6 +388,17 @@ bool memory_partition_unit::hbf_cycle() {
+       continue;
+     mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
+     if (!m_config->is_hbf_addr(mf->get_addr())) continue;
++    if (m_hbf_frontend_cycles > 0) {
++      m_sub_partition[spid]->L2_dram_queue_pop();
++      trace_mem_access(mf, true);
++      hbf_delay_t d;
++      d.ready_cycle = now + m_hbf_frontend_cycles;
++      d.req = mf;
++      m_hbf_frontend_queue.push_back(d);
++      mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE, now);
++      m_arbitration_metadata.borrow_credit(spid);
++      return true;
++    }
+     // Backpressure belongs to the addressed stack.  Continue checking other
+     // local subpartitions because a different stack may still accept work.
+     if (m_hbf_system->full(mf->get_addr(), mf->is_write())) continue;
+@@ -488,6 +535,223 @@ bool memory_partition_unit::phy_take_hbm(unsigned bytes) {
+   return true;
+ }
+ 
++// -gpgpu_hbf_attach 3: H3 (Ha et al., IEEE CAL 2026, Fig. 3(b)).  Replaces
++// dram_cycle() and runs once per DRAM tick, in the same order: replies, DRAM
++// tick, GPU issue, DRAM latency queue.  The GPU memory controller part (L2->
++// DRAM queues, arbitration credits, one issue per tick) is dram_cycle()'s and
++// never looks at the HBF window.  Requests cross the GPU<->HBM link (token
++// bucket m_phy_*: write payload down, read data up, both tiers) into the HBM
++// base die, whose address decoder & router sends each one to the HBM
++// controller (m_dram) or to the D2D queue of the HBF stack.  HBF replies come
++// back through the base die and the same link.  With no HBF traffic and an
++// unlimited link the HBM path differs from dram_cycle() only by the ingress
++// FIFO (requests may leave the L2 queue while the HBM controller is full).
++void memory_partition_unit::h3_dram_cycle() {
++  const unsigned long long now =
++      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  hbf_attach_stats_t &st = m_hbf_system->attach_stats();
++  if (m_phy_rate > 0)
++    m_phy_tokens = std::min(m_phy_cap, m_phy_tokens + m_phy_rate);
++
++  // 1. Replies, HBM base die -> link -> GPU.  The tier that goes first
++  //    alternates, so neither can starve the other on the link.
++  m_h3_up_first = !m_h3_up_first;
++  if (m_h3_up_first) {
++    h3_return_hbm();
++    h3_return_hbf();
++  } else {
++    h3_return_hbf();
++    h3_return_hbm();
++  }
++
++  m_dram->cycle();
++  m_dram->dram_log(SAMPLELOG);
++
++  // 2. GPU memory controller: one request per tick from the L2->DRAM queues,
++  //    on a DRAM credit, onto the link (flow control: base-die ingress space).
++  int last_issued_partition = m_arbitration_metadata.last_borrower();
++  unsigned issued_now = 0;
++  for (unsigned p = 0; p < m_config->m_n_sub_partition_per_memory_channel;
++       p++) {
++    int spid = (p + last_issued_partition + 1) %
++               m_config->m_n_sub_partition_per_memory_channel;
++    if (m_sub_partition[spid]->L2_dram_queue_empty() ||
++        !can_issue_to_dram(spid))
++      continue;
++    if (m_h3_ingress.size() >= m_config->hbf_h3_queue_size) break;
++    mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
++    // Write payload crosses the link on the way down.
++    if (mf->is_write()) {
++      if (!h3_link_take(mf->get_data_size())) {
++        st.phy_down_stall_ticks++;
++        break;
++      }
++      st.phy_down_bytes += mf->get_data_size();
++    }
++    m_sub_partition[spid]->L2_dram_queue_pop();
++    h3_req_t r;
++    r.req = mf;
++    r.l2_exit_cycle = mf->get_status_change_cycle();
++    mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE, now);
++    m_arbitration_metadata.borrow_credit(spid);
++    m_h3_ingress.push_back(r);
++    // One request per tick by default, as dram_cycle(); at most one per
++    // sub-partition per tick otherwise.
++    if (++issued_now >= m_config->hbf_h3_issues_per_tick) break;
++  }
++  unsigned long long used = (unsigned long long)m_arbitration_metadata.used();
++  if (used > st.h3_max_dram_credits) st.h3_max_dram_credits = used;
++  st.h3_dram_credit_limit = (unsigned long long)m_arbitration_metadata.limit();
++
++  // 3. HBM base die: address decoder & router, one request per tick (default),
++  //    in arrival order (a full destination blocks the ingress FIFO).
++  for (unsigned n = 0;
++       n < m_config->hbf_h3_issues_per_tick && !m_h3_ingress.empty(); ++n) {
++    mem_fetch *mf = m_h3_ingress.front().req;
++    if (m_config->is_hbf_addr(mf->get_addr())) {
++      m_hbf_issue_cycle[mf] = m_h3_ingress.front().l2_exit_cycle;
++      m_h3_ingress.pop_front();
++      trace_mem_access(mf, true);
++      // The HBM path pays the GPU front end (MC + PHY) inside the HBM
++      // controller model (Ramulator's fixed latency); HBF requests cross the
++      // same GPU MC and link, so they pay hbf_frontend_latency_ns here.
++      hbf_delay_t d;
++      d.ready_cycle = now + m_hbf_frontend_cycles;
++      d.req = mf;
++      m_h3_frontend.push_back(d);
++      st.h3_routed_hbf++;
++      st.admitted++;
++    } else if (!m_dram->full(mf->is_write())) {
++      m_h3_ingress.pop_front();
++      trace_mem_access(mf, false);
++      dram_delay_t d;
++      d.req = mf;
++      d.ready_cycle =
++          now + (m_dram->has_own_latency() ? 0 : m_config->dram_latency);
++      m_dram_latency_queue.push_back(d);
++      st.h3_routed_hbm++;
++    } else {
++      st.h3_router_stall_ticks++;
++      break;
++    }
++  }
++
++  // 4. DRAM latency queue -> HBM controller (as dram_cycle()).
++  if (!m_dram_latency_queue.empty() &&
++      (now >= m_dram_latency_queue.front().ready_cycle) &&
++      !m_dram->full(m_dram_latency_queue.front().req->is_write())) {
++    mem_fetch *mf = m_dram_latency_queue.front().req;
++    m_dram_latency_queue.pop_front();
++    m_dram->push(mf);
++  }
++}
++
++// attach 3: the GPU<->HBM link.  May go negative by one transfer (burst).
++bool memory_partition_unit::h3_link_take(unsigned bytes) {
++  if (m_phy_rate <= 0) return true;
++  if (m_phy_tokens <= 0.0) return false;
++  m_phy_tokens -= bytes;
++  return true;
++}
++
++// attach 3: one HBM controller reply per tick over the link (dram_cycle()'s
++// return step plus the link).
++void memory_partition_unit::h3_return_hbm() {
++  mem_fetch *mf_return = m_dram->return_queue_top();
++  if (!mf_return) {
++    m_dram->return_queue_pop();
++    return;
++  }
++  hbf_attach_stats_t &st = m_hbf_system->attach_stats();
++  unsigned dest_global_spid = mf_return->get_sub_partition_id();
++  int dest_spid = global_sub_partition_id_to_local_id(dest_global_spid);
++  assert(m_sub_partition[dest_spid]->get_id() == dest_global_spid);
++  if (m_sub_partition[dest_spid]->dram_L2_queue_full()) return;
++  if (mf_return->get_access_type() == L1_WRBK_ACC) {
++    m_sub_partition[dest_spid]->set_done(mf_return);
++    delete mf_return;
++  } else {
++    if (!mf_return->is_write()) {
++      if (!h3_link_take(mf_return->get_data_size())) {
++        st.phy_hbm_stall_ticks++;
++        return;
++      }
++      st.phy_hbm_bytes += mf_return->get_data_size();
++    }
++    m_sub_partition[dest_spid]->dram_L2_queue_push(mf_return);
++    mf_return->set_status(IN_PARTITION_DRAM_TO_L2_QUEUE,
++                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
++    m_arbitration_metadata.return_credit(dest_spid);
++  }
++  m_dram->return_queue_pop();
++}
++
++// attach 3: one HBF reply per tick, HBF stack -> D2D -> HBM base die -> link.
++// Write-backs give the DRAM credit back through set_done(), as in hbf_cycle().
++void memory_partition_unit::h3_return_hbf() {
++  const unsigned n_sub = m_config->m_n_sub_partition_per_memory_channel;
++  const unsigned long long now =
++      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  hbf_attach_stats_t &st = m_hbf_system->attach_stats();
++  const unsigned start = m_h3_hbf_rr;
++  unsigned returned_now = 0;
++  for (unsigned k = 0; k < n_sub; ++k) {
++    unsigned p = (start + k) % n_sub;
++    unsigned global_spid = m_id * n_sub + p;
++    if (!m_hbf_system->has_return_for(global_spid)) continue;
++    if (m_sub_partition[p]->dram_L2_queue_full()) continue;
++    mem_fetch *mf_return = m_hbf_system->peek_return_for(global_spid);
++    assert(mf_return);
++    if (!mf_return->is_write()) {
++      if (!h3_link_take(mf_return->get_data_size())) {
++        st.phy_hbf_stall_ticks++;
++        return;
++      }
++      st.phy_hbf_bytes += mf_return->get_data_size();
++    }
++    mf_return = m_hbf_system->pop_return_for(global_spid);
++    assert(mf_return);
++    auto issued = m_hbf_issue_cycle.find(mf_return);
++    assert(issued != m_hbf_issue_cycle.end());
++    if (!mf_return->is_write()) st.record_latency(now - issued->second);
++    m_hbf_issue_cycle.erase(issued);
++    st.returned++;
++    if (mf_return->get_access_type() == L1_WRBK_ACC ||
++        mf_return->get_access_type() == L2_WRBK_ACC) {
++      set_done(mf_return);
++      delete mf_return;
++    } else {
++      m_sub_partition[p]->dram_L2_queue_push(mf_return);
++      mf_return->set_status(IN_PARTITION_DRAM_TO_L2_QUEUE, now);
++      m_arbitration_metadata.return_credit(p);
++    }
++    m_h3_hbf_rr = (p + 1) % n_sub;
++    if (++returned_now >= m_config->hbf_h3_returns_per_tick) return;
++  }
++}
++
++// attach 3: front end -> D2D queue -> HBF stack, one request per partition per
++// tick, in the GPU-wide rotating order of gpgpu_sim::cycle().
++bool memory_partition_unit::h3_hbf_cycle() {
++  const unsigned long long now =
++      m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle;
++  while (!m_h3_frontend.empty() && m_h3_frontend.front().ready_cycle <= now &&
++         m_h3_d2d.size() < m_config->hbf_h3_queue_size) {
++    m_h3_d2d.push_back(m_h3_frontend.front().req);
++    m_h3_frontend.pop_front();
++  }
++  bool admitted = false;
++  for (unsigned i = 0; i < m_config->hbf_h3_admits_per_tick; ++i) {
++    if (m_h3_d2d.empty()) break;
++    mem_fetch *mf = m_h3_d2d.front();
++    if (m_hbf_system->full(mf->get_addr(), mf->is_write())) break;
++    m_h3_d2d.pop_front();
++    m_hbf_system->push(mf);
++    admitted = true;
++  }
++  return admitted;
++}
++
+ void memory_partition_unit::simple_dram_model_cycle() {
+   // pop completed memory request from dram and push it to dram-to-L2 queue
+   // of the original sub partition
+@@ -559,7 +823,7 @@ void memory_partition_unit::simple_dram_model_cycle() {
+       // L2-to-memory queue so the HBF path can admit the original request.
+       // Popping before this check silently dropped requests in the simple
+       // DRAM model.
+-      if (m_config->is_hbf_addr(mf->get_addr())) continue;
++      if (m_config->gpu_routes_hbf(mf->get_addr())) continue;
+ 
+       m_sub_partition[spid]->L2_dram_queue_pop();
+       MEMPART_DPRINTF(
+@@ -585,6 +849,10 @@ void memory_partition_unit::simple_dram_model_cycle() {
+ }
+ 
+ void memory_partition_unit::dram_cycle() {
++  if (m_config->hbf_attach == 3 && m_hbf_system) {
++    h3_dram_cycle();
++    return;
++  }
+   // pop completed memory request from dram and push it to dram-to-L2 queue
+   // of the original sub partition
+   mem_fetch *mf_return = m_dram->return_queue_top();
+@@ -629,7 +897,7 @@ void memory_partition_unit::dram_cycle() {
+       if (m_dram->full(mf->is_write())) break;
+ 
+       // Skip HBF-addressed requests — handled by hbf_cycle()
+-      if (m_config->is_hbf_addr(mf->get_addr())) continue;
++      if (m_config->gpu_routes_hbf(mf->get_addr())) continue;
+ 
+       // attach 2: HBM requests share the PHY with HBF replies.
+       if (m_config->hbf_attach == 2 && m_hbf_system &&
+@@ -878,7 +1146,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
+       // HBF (merge): the default HBF policy bypasses L2 admission. Pop the
+       // queue the request came from (icnt or peer chiplet) and respect the
+       // L2->DRAM queue capacity (the original patch pushed unconditionally).
+-      if (m_config->is_hbf_addr(mf->get_addr()) &&
++      if (m_config->gpu_routes_hbf(mf->get_addr()) &&
+           m_config->hbf_l2_policy == 0) {
+         if (!memory_queue_full(mf)) {
+           mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE,
+@@ -1005,7 +1273,7 @@ class mem_fetch *memory_sub_partition::L2_dram_queue_top() const {
+ void memory_sub_partition::L2_dram_queue_pop() { m_L2_dram_queue->pop(); }
+ 
+ bool memory_sub_partition::uses_hbf_queue(const mem_fetch *mf) const {
+-  return m_config->hbf_attach >= 1 &&
++  return (m_config->hbf_attach == 1 || m_config->hbf_attach == 2) &&
+          m_config->is_hbf_addr(mf->get_addr());
+ }
+ 
+diff --git a/src/gpgpu-sim/l2cache.h b/src/gpgpu-sim/l2cache.h
+index 25291d82..cf09862a 100644
+--- a/src/gpgpu-sim/l2cache.h
++++ b/src/gpgpu-sim/l2cache.h
+@@ -322,6 +322,29 @@ class memory_partition_unit {
+   bool m_phy_hbm_turn;       // alternate priority when both tiers wait
+   bool m_phy_hbm_waiting;    // an HBM request was blocked by the PHY last tick
+ 
++  // -gpgpu_hbf_attach 3 (H3).  GPU side: dram_cycle's arbitration and credits,
++  // no knowledge of the HBF tier.  The GPU<->HBM link is the m_phy_* token
++  // bucket (write payload going down, read data coming up).  HBM base die:
++  // an ingress FIFO from the link and an address router that feeds the HBM
++  // controller (m_dram) or the D2D queue to the HBF stack.
++  void h3_dram_cycle();
++  bool h3_hbf_cycle();          // D2D queue -> HBF stack (GPU-wide rotation)
++  bool h3_link_take(unsigned bytes);
++  void h3_return_hbm();         // HBM controller reply -> link -> L2
++  void h3_return_hbf();         // HBF reply -> HBM base die -> link -> L2
++  struct h3_req_t {
++    mem_fetch *req;
++    unsigned long long l2_exit_cycle;  // core cycle the request left the L2
++  };
++  std::deque<h3_req_t> m_h3_ingress;     // base die: arrived over the link
++  // HBF-routed requests: the GPU front end (a latency, not a capacity: bounded
++  // only by the GPU's DRAM credits, like attach 1's m_hbf_frontend_queue), then
++  // the base die's D2D queue to the HBF stack (hbf_h3_queue_size entries).
++  std::deque<hbf_delay_t> m_h3_frontend;
++  std::deque<mem_fetch *> m_h3_d2d;
++  bool m_h3_up_first;                    // alternate HBM/HBF replies on the link
++  unsigned m_h3_hbf_rr;                  // next sub-partition for HBF replies
++
+   class arbitration_metadata {
+    public:
+     arbitration_metadata(const memory_config *config);
+@@ -338,6 +361,9 @@ class memory_partition_unit {
+ 
+     // replace the outstanding-request limit (set by the DRAM model)
+     void set_max_outstanding(int max_outstanding);
++    // credits currently borrowed, and the total limit (0 = unlimited)
++    int used() const;
++    int limit() const;
+ 
+     void print(FILE *fp) const;
+ 
+diff --git a/src/gpgpu-sim/ramulator_dram.cc b/src/gpgpu-sim/ramulator_dram.cc
+index ccd310b6..7d8c7ee9 100644
+--- a/src/gpgpu-sim/ramulator_dram.cc
++++ b/src/gpgpu-sim/ramulator_dram.cc
+@@ -188,7 +188,18 @@ class ramulator_channel {
+           mf->get_pc(), mf->get_data_size());
+   }
+ 
+-  bool full() const { return m_pending.size() >= queue_limit(); }
++  bool full() const {
++    if (!m_config->ramulator_frontend_pipeline)
++      return m_pending.size() >= queue_limit();
++    // Count only requests whose front-end latency has passed (m_pending is in
++    // ready order: every request waits the same latency).
++    unsigned ready = 0;
++    for (const pending_t &p : m_pending) {
++      if (p.ready_tick > m_mem->m_clk) break;
++      if (++ready >= queue_limit()) return true;
++    }
++    return false;
++  }
+ 
+   void cycle() {
+     send_ready();
+-- 
+2.43.0
+

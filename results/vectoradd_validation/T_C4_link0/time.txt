@@ -1,0 +1,23 @@
+	Command being timed: "/home/lakshay/btp_work/hbm_hbf_study/sim/run_sim.sh /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/T_C4_link0 -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_hbf_phy_gbps 0 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/original/kernelslist.g"
+	User time (seconds): 71.11
+	System time (seconds): 0.90
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:12.02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 134544
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 67
+	Minor (reclaiming a frame) page faults: 47033
+	Voluntary context switches: 2161
+	Involuntary context switches: 109
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 248
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

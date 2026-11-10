@@ -1,0 +1,106 @@
+DRAM Timing Options:
+nbk                                    16 # number of banks
+CCD                                     1 # column to column delay
+RRD                                     3 # minimal delay between activation of rows in different banks
+RCD                                    12 # row to column delay
+RAS                                    28 # time needed to activate row
+RP                                     12 # time needed to precharge (deactivate) row
+RC                                     40 # row cycle time
+CDLR                                    3 # switching from write to read (changes tWTR)
+WR                                     10 # last data-in to row precharge
+CL                                     12 # CAS latency
+WL                                      2 # Write latency
+nbkgrp                                  4 # number of bank groups
+CCDL                                    2 # column to column delay between accesses to different bank groups
+RTPL                                    3 # read to precharge delay between accesses to different bank groups
+Total number of memory sub partition = 64
+addr_dec_mask[CHIP]  = 0000000000001f00 	high:13 low:8
+addr_dec_mask[BK]    = 00000000000e2000 	high:20 low:13
+addr_dec_mask[ROW]   = 00000001fff00000 	high:33 low:20
+addr_dec_mask[COL]   = 000000000001c0ff 	high:17 low:0
+addr_dec_mask[BURST] = 000000000000001f 	high:5 low:0
+sub_partition_id_mask = 0000000000002000
+GPGPU-Sim uArch: clock freqs: 1132000000.000000:1132000000.000000:1132000000.000000:850000000.000000
+GPGPU-Sim uArch: clock periods: 0.00000000088339222615:0.00000000088339222615:0.00000000088339222615:0.00000000117647058824
+*** Initializing Memory Statistics ***
+GPGPU-Sim uArch: performance model initialization complete.
+
+========= HBF System Statistics =========
+HBF Stacks:             1
+HBF Stack Map:          page-interleave
+HBF Total Capacity:     549755813888 bytes
+HBF Per-Stack Capacity: 549755813888 bytes
+HBF Channels Per Stack: 4
+
+--------- HBF Stack 0 (routed=96 completed=96) ---------
+
+========= HBF Cube Controller Statistics =========
+HBF DRAM Clock:         850.0 MHz (all HBF timers count DRAM-clock ticks)
+HBF Sub-arrays:         32
+HBF Logical Cube Channels: 4 (global namespace)
+HBF Page Reads:         2
+HBF Page Programs:      0
+HBF Block Erases:       0
+HBF Partial Page Programs: 0 (compatibility policy)
+HBF Incomplete Page Errors: 0 (strict policy)
+HBF Write Coverage Errors: 0
+HBF Mapping Errors:        0
+HBF Host Write Bytes:      0
+HBF Unique Write Bytes:    0
+HBF Media Program Bytes:   0
+HBF Padding Bytes:       0
+HBF Write Traffic Ratio:  0.0000
+HBF Write Timeout Flushes: 0 (successful entries)
+HBF Idle Drain Events:     0 (at least one entry flushed)
+HBF Total Requests:     96
+HBF MSHR Hits:          91 (94.8% coalesced)
+HBF Bytes Read:         3072
+HBF Bytes Written:      0
+HBF Read Policy:        demand (window=0 ticks threshold=4096 bytes)
+HBF Requested Read Bytes: 3072
+HBF Media Read Bytes:     8192
+HBF Read Amplification:   2.6667
+HBF Aggregation Wait:      0 ticks
+HBF First-Request Latency: 260 core cycles (5 pages)
+HBF Avg Op Latency:     54 core cycles (0.05 us)
+HBF NAND Timing:        tR=20 ticks (0.02 us)  tPROG=40 ticks (0.05 us)  tBERS=80 ticks (0.09 us)
+HBF Max Queue Depth:    1
+HBF Cycles Active:      189
+HBF Channels:           4 (map mode interleave, per-channel BW 192 GB/s, write limit 64)
+HBF Read Latency:       avg=54 max=71 core cycles (96 reqs)
+HBF Scheduler:          FCFS (drain windows=0, reads deferred in windows=0)
+HBF Drain Read Breaks:  0
+  HBF Ch 0: subarrays=[0,8) reqs=64 rd=1 pg=0 er=0 ow=0 def_attempts=0 stall=7
+    active_ticks=20 util=0.340% transfer_bytes=2048
+  HBF Ch 1: subarrays=[8,16) reqs=32 rd=1 pg=0 er=0 ow=0 def_attempts=0 stall=4
+    active_ticks=20 util=0.340% transfer_bytes=1024
+  HBF Ch 2: subarrays=[16,24) reqs=0 rd=0 pg=0 er=0 ow=0 def_attempts=0 stall=0
+    active_ticks=0 util=0.000% transfer_bytes=0
+  HBF Ch 3: subarrays=[24,32) reqs=0 rd=0 pg=0 er=0 ow=0 def_attempts=0 stall=0
+    active_ticks=0 util=0.000% transfer_bytes=0
+HBF Channel Utilization: min=0.000% avg=0.170% max=0.340% imbalance=2.0000
+HBF FTL Translations:   5
+HBF FTL Allocations:    0
+HBF FTL GC Events:      0
+HBF FTL GC Page Copies: 0
+HBF FTL GC Erases:      0
+HBF FTL GC Stall Cycles:0
+HBF FTL Total Blocks:   0
+HBF FTL Free Blocks:    0
+HBF FTL Capacity:       0 / 2097152 max blocks (512.00 GiB modeled per cube)
+HBF FTL Cap Exceeded:   0
+HBF FTL Capacity Error:  no
+HBF FTL Media Mode:     hbf (OCP 11.4: no GC, zone-based, no valid-data movement; GC disabled)
+HBF Capacity Usage:    0 live / 134217728 configured pages (0.00%)
+HBF Capacity Bytes:    0 live / 549755813888 configured bytes
+HBF Allocated Metadata: 0 pages (0 bytes)
+HBF Logical Pages:     0 live mappings
+HBF Subarray Spread:   0 / 32 subarrays hold data
+HBF Subarray Usage:    empty=32 low=0 mid=0 high=0 full=0
+HBF Active Sub-arrays:  0 / 32
+HBF Page Buffer Hits:   0 (0.0%)
+HBF Page Cache:         enabled (2 entries, hits=3 misses=2)
+HBF Page Cache Hit Rate: 60.0%  Evictions: 0
+==========================================================
+
+REPLAY requests=96 returns=96 end_cycle=5880 blocked_ticks=0

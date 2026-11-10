@@ -1,0 +1,4 @@
+C1 qwen3_full prefetch=off rc=0
+  cycles 41,351,654  time 29327.41 us  kernels 1819  insn 14,733,970,376
+  L2 accesses 164,601,619 misses 108,071,173
+  HBM/DRAM read 3,445,588,864 B write 13,607,200 B = 117.95 GB/s of 387.07

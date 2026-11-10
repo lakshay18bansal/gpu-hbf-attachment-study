@@ -1,0 +1,17 @@
+# C3: GPU + HBM and HBF, both attached directly to the GPU. The GPU memory controller decodes
+# the HBF window after the L2 and sends HBF requests through their own L2->HBF queue and
+# credit pool to the HBF stack's own PHY (16 ch x 192 GB/s, HBF-Sim's device), so HBF
+# bandwidth adds to the HBM's 387 GB/s and neither tier blocks the other.
+# Same HBF device and L2 bypass as C2 (HBF-Sim); no prefetcher.
+-gpgpu_hbf_enabled 1
+-gpgpu_hbf_attach 1
+-gpgpu_hbf_l2_policy 0
+# HBF requests cross a GPU memory controller + PHY like HBM requests, so they pay the same front
+# end: 134.75 ns = HBF-Sim's -dram_latency 190 core cycles at 1410 MHz (HBM gets it as
+# Ramulator's fixed latency, memory/hbm2e_slice8.py). C2 keeps HBF-Sim's 0.
+-gpgpu_hbf_frontend_latency_ns 134.751773
+# HBF requests in flight per partition: not limited by the GPU (the HBF controller's own
+# 4096 admission entries and 512 active sub-arrays are the limits, as in HBF-Sim).
+-gpgpu_hbf_credits 32768
+# L2->HBF queue depth = HBF-Sim's L2->DRAM queue depth (-gpgpu_dram_partition_queues 64:64:64:64).
+-gpgpu_hbf_l2_queue_size 64

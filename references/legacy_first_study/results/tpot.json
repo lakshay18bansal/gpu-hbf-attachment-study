@@ -1,0 +1,194 @@
+[
+ {
+  "config": "C1_hbm_only",
+  "tR": "",
+  "pf": "",
+  "cycles": 30401426,
+  "tpot_ms": 21.561295035460994,
+  "est": false
+ },
+ {
+  "config": "C2_hbf_dram",
+  "tR": 15.0,
+  "pf": "off",
+  "cycles": 170913022.9083815,
+  "tpot_ms": 121.21490986410035,
+  "est": true
+ },
+ {
+  "config": "C2_hbf_dram",
+  "tR": 15.0,
+  "pf": "on",
+  "cycles": 29770419,
+  "tpot_ms": 21.11377234042553,
+  "est": false
+ },
+ {
+  "config": "C2_hbf_dram",
+  "tR": 20.0,
+  "pf": "on",
+  "cycles": 31340936.72269438,
+  "tpot_ms": 22.227614696946365,
+  "est": true
+ },
+ {
+  "config": "C2_hbf_dram",
+  "tR": 3.0,
+  "pf": "on",
+  "cycles": 28027245.3217244,
+  "tpot_ms": 19.87747895157759,
+  "est": true
+ },
+ {
+  "config": "C2_hbf_dram",
+  "tR": 5.0,
+  "pf": "on",
+  "cycles": 28082324.410641536,
+  "tpot_ms": 19.916542135206765,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 15.0,
+  "pf": "off",
+  "cycles": 170867112.28505993,
+  "tpot_ms": 121.18234913834037,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 15.0,
+  "pf": "on",
+  "cycles": 29667667,
+  "tpot_ms": 21.04089858156028,
+  "est": false
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 20.0,
+  "pf": "off",
+  "cycles": 222727921.63147917,
+  "tpot_ms": 157.96306498686465,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 20.0,
+  "pf": "on",
+  "cycles": 31638418.648270734,
+  "tpot_ms": 22.438594786007613,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 3.0,
+  "pf": "off",
+  "cycles": 48639712.49625054,
+  "tpot_ms": 34.49624999734081,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 3.0,
+  "pf": "on",
+  "cycles": 27997850.83094608,
+  "tpot_ms": 19.85663179499722,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 5.0,
+  "pf": "off",
+  "cycles": 69920833.90540023,
+  "tpot_ms": 49.589243904539174,
+  "est": true
+ },
+ {
+  "config": "C3_iso_stack",
+  "tR": 5.0,
+  "pf": "on",
+  "cycles": 28036266.799280457,
+  "tpot_ms": 19.883877162610254,
+  "est": true
+ },
+ {
+  "config": "C3_iso_shoreline",
+  "tR": 15.0,
+  "pf": "off",
+  "cycles": 177104407.66211691,
+  "tpot_ms": 125.60596288093397,
+  "est": true
+ },
+ {
+  "config": "C3_iso_shoreline",
+  "tR": 15.0,
+  "pf": "on",
+  "cycles": 38621458,
+  "tpot_ms": 27.391104964539007,
+  "est": false
+ },
+ {
+  "config": "C3_iso_shoreline",
+  "tR": 20.0,
+  "pf": "on",
+  "cycles": 39780415.53659538,
+  "tpot_ms": 28.213060664252044,
+  "est": true
+ },
+ {
+  "config": "C3_iso_shoreline",
+  "tR": 3.0,
+  "pf": "on",
+  "cycles": 35990379.62425115,
+  "tpot_ms": 25.525091932093016,
+  "est": true
+ },
+ {
+  "config": "C3_iso_shoreline",
+  "tR": 5.0,
+  "pf": "on",
+  "cycles": 36299711.5052107,
+  "tpot_ms": 25.74447624483028,
+  "est": true
+ },
+ {
+  "config": "C4_behind_hbm",
+  "tR": 15.0,
+  "pf": "off",
+  "cycles": 169435399.540671,
+  "tpot_ms": 120.16695002884467,
+  "est": true
+ },
+ {
+  "config": "C4_behind_hbm",
+  "tR": 15.0,
+  "pf": "on",
+  "cycles": 29990176,
+  "tpot_ms": 21.269628368794326,
+  "est": false
+ },
+ {
+  "config": "C4_behind_hbm",
+  "tR": 20.0,
+  "pf": "on",
+  "cycles": 31558360.217360597,
+  "tpot_ms": 22.381815756993333,
+  "est": true
+ },
+ {
+  "config": "C4_behind_hbm",
+  "tR": 3.0,
+  "pf": "on",
+  "cycles": 28205543.363173332,
+  "tpot_ms": 20.003931463243497,
+  "est": true
+ },
+ {
+  "config": "C4_behind_hbm",
+  "tR": 5.0,
+  "pf": "on",
+  "cycles": 28183334.739906773,
+  "tpot_ms": 19.988180666600545,
+  "est": true
+ }
+]
