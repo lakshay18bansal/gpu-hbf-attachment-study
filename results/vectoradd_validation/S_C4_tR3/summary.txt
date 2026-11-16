@@ -1,9 +1,10 @@
-C4 vectoradd prefetch=on rc=0
-  cycles 75,827  time 53.78 us  kernels 1  insn 14,680,064
-  L2 accesses 393,216 misses 315,388
-  HBM/DRAM read 0 B write 1,310,720 B = 24.37 GB/s of 387.07
-  HBF requests 184,316 page reads 3,430 MSHR hits 178,579 bytes read 5,898,112 = 109.68 GB/s; read latency avg 43 cycles
-  attach: admitted 184,316 returned 184,316; E2E latency avg 222 p50 224 p99 288 cycles
-  H3 base die routed hbm 10,240 hbf 184,316 (router stall ticks 0); GPU DRAM credits max 242 / 257
-  H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,898,112 B
-  LHB request hits 150,284
+C4 vectoradd tR=3us LHB=16MiB rc=0
+  cycles 74,200  time 52.62 us  kernels 1  insn 14,680,064
+  L2 accesses 393,216 misses 315,376; GPU memory latency avg 439 cycles
+  HBM/DRAM read 0 B write 1,310,720 B = 24.91 GB/s of 387.07
+  HBF requests 184,304 page reads 2,048 MSHR hits 180,531 bytes read 5,897,728 = 112.07 GB/s; read latency avg 46 cycles
+  attach: admitted 184,304 returned 184,304; E2E latency avg 227 p50 240 p99 288 cycles
+  H3 base die routed hbm 10,240 hbf 184,304 (router stall ticks 0); GPU DRAM credits max 210 / 257
+  H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,897,728 B
+  flash read amplification 1.4223; array busy 22.805%
+  LHB request hits 184,304 (100.00%); fills 2,048, wasted 0, live evictions 0; data ready 23.525 us before use

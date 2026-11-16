@@ -1,22 +1,22 @@
 Command exited with non-zero status 1
-	Command being timed: "/home/lakshay/btp_work/hbm_hbf_study/sim/run_sim.sh /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/D_W_C4_win50k -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_deadlock_window 50000 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g"
-	User time (seconds): 122.83
-	System time (seconds): 0.83
+	Command being timed: "/home/lakshay/btp_work/hbf-gpu-4arch/simulator/run_sim.sh /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/D_W_C4_win50k -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_deadlock_window 50000 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g"
+	User time (seconds): 163.58
+	System time (seconds): 1.04
 	Percent of CPU this job got: 99%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:03.71
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:44.67
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 117448
+	Maximum resident set size (kbytes): 117316
 	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 63
-	Minor (reclaiming a frame) page faults: 46621
-	Voluntary context switches: 2217
-	Involuntary context switches: 182
+	Major (requiring I/O) page faults: 64
+	Minor (reclaiming a frame) page faults: 46633
+	Voluntary context switches: 2328
+	Involuntary context switches: 474
 	Swaps: 0
-	File system inputs: 32
-	File system outputs: 520
+	File system inputs: 112
+	File system outputs: 536
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0

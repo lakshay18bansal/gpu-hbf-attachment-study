@@ -3,7 +3,7 @@
 Date: 2026-10-28. Scope: choose how to build one `accel-sim.out` that contains (a) our Ramulator 2.1
 bridge (realistic HBM3) and (b) HBF-Sim's HBF tier, so that configs C1 to C4 run on the same binary.
 Nothing in `accel_sim_hbf/` or `accelsim-work/` was modified. All prototypes and runs are in
-`/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/merge/`
+`<scratch>/merge/`
 (called `$M` below).
 
 Labels: **[ran]** = I executed it and the numbers come from its output. **[read]** = I read it in the

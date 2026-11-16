@@ -1,9 +1,10 @@
-C4 vectoradd prefetch=on rc=0
+C4 vectoradd tR=15us LHB=16MiB rc=0
   cycles 122,416  time 86.82 us  kernels 1  insn 14,680,064
-  L2 accesses 393,216 misses 315,160
+  L2 accesses 393,216 misses 315,160; GPU memory latency avg 683 cycles
   HBM/DRAM read 0 B write 1,310,720 B = 15.10 GB/s of 387.07
   HBF requests 184,088 page reads 2,048 MSHR hits 178,555 bytes read 5,890,816 = 67.85 GB/s; read latency avg 546 cycles
   attach: admitted 184,088 returned 184,088; E2E latency avg 737 p50 240 p99 32224 cycles
   H3 base die routed hbm 10,240 hbf 184,088 (router stall ticks 0); GPU DRAM credits max 256 / 257
   H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,890,816 B
-  LHB request hits 180,006
+  flash read amplification 1.424; array busy 69.109%
+  LHB request hits 180,006 (97.78%); fills 2,048, wasted 0, live evictions 0; data ready 16.812 us before use

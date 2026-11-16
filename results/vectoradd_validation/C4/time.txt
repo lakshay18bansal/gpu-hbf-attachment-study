@@ -1,21 +1,21 @@
-	Command being timed: "/home/lakshay/btp_work/hbm_hbf_study/sim/run_sim.sh /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/C4 -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/C4/hbf.csv -gpgpu_hbf_trace_level 1 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g"
-	User time (seconds): 125.96
-	System time (seconds): 2.19
+	Command being timed: "/home/lakshay/btp_work/hbf-gpu-4arch/simulator/run_sim.sh /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/C4 -config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/C4/hbf.csv -gpgpu_hbf_trace_level 1 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g"
+	User time (seconds): 109.39
+	System time (seconds): 2.01
 	Percent of CPU this job got: 100%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:08.06
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:51.28
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 114228
+	Maximum resident set size (kbytes): 114524
 	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 80
-	Minor (reclaiming a frame) page faults: 43108
-	Voluntary context switches: 8089
-	Involuntary context switches: 434
+	Major (requiring I/O) page faults: 65
+	Minor (reclaiming a frame) page faults: 43083
+	Voluntary context switches: 8115
+	Involuntary context switches: 481
 	Swaps: 0
 	File system inputs: 0
-	File system outputs: 57856
+	File system outputs: 57848
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0

@@ -2,7 +2,7 @@
 # GPGPU-Sim's built-in DRAM. Attach 0 = HBF-Sim's attachment: HBF requests leave the L2
 # through the shared L2->DRAM queue, take the partition's DRAM credits (257) and are handed
 # to the HBF controller by hbf_cycle(); HBF data bypasses the L2 (-gpgpu_hbf_l2_policy 0).
-# No prefetcher.
+# No latency-hiding buffer (LHB): that is part of H3 (C4) only.
 -gpgpu_hbf_enabled 1
 -gpgpu_hbf_attach 0
 -gpgpu_hbf_l2_policy 0

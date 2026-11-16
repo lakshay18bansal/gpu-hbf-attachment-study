@@ -1,9 +1,9 @@
 {
  "study": "hbfsim_4arch",
  "config": "C3",
- "config_dir": "/home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/C3_hbf_hbm_direct",
+ "config_dir": "/home/lakshay/btp_work/hbf-gpu-4arch/models/C3_hbf_hbm_direct",
  "workload": "vectoradd",
- "kernelslist": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g",
+ "kernelslist": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g",
  "prefetch": "off",
  "tR_us": 15.0,
  "memory": "hbm2e_slice8",
@@ -19,6 +19,6 @@
  "lhb_pages": 0,
  "prefetch_window": 0,
  "hints": "",
- "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/P_C3_cred257/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/P_C3_cred257/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_hbf_credits 257",
- "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/P_C3_cred257/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/P_C3_cred257/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_hbf_credits 257 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g"
+ "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/P_C3_cred257/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/P_C3_cred257/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_hbf_credits 257",
+ "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/P_C3_cred257/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/P_C3_cred257/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_hbf_credits 257 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g"
 }

@@ -1,0 +1,7 @@
+C3 vectoradd tR=15us subarrays=1024 rc=0
+  cycles 2,759,605  time 1957.17 us  kernels 1  insn 14,680,064
+  L2 accesses 131,072 misses 131,072; GPU memory latency avg 21517 cycles
+  HBM/DRAM read 0 B write 0 B = 0.00 GB/s of 387.07
+  HBF requests 262,144 page reads 2,048 MSHR hits 260,096 bytes read 8,388,608 = 4.29 GB/s; read latency avg 21166 cycles
+  attach: admitted 262,144 returned 262,144; E2E latency avg 31874 p50 40880 p99 42480 cycles
+  flash read amplification 1.0; array busy 98.101%

@@ -1,0 +1,7 @@
+C3 qwen3_layer13 tR=15us subarrays=1024 rc=0
+  cycles 3,844,286  time 2726.44 us  kernels 64  insn 433,805,850
+  L2 accesses 1,687,772 misses 16,148; GPU memory latency avg 7411 cycles
+  HBM/DRAM read 119,456 B write 0 B = 0.04 GB/s of 387.07
+  HBF requests 3,146,176 page reads 994,115 MSHR hits 2,152,061 bytes read 100,677,632 = 36.93 GB/s; read latency avg 10584 cycles
+  attach: admitted 3,146,176 returned 3,146,176; E2E latency avg 10570 p50 16896 p99 21344 cycles
+  flash read amplification 40.4449; array busy 85.561%

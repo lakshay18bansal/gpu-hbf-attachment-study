@@ -1,11 +1,13 @@
 {
  "study": "hbfsim_4arch",
  "config": "C4",
- "config_dir": "/home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/C4_h3_hbf_behind_hbm",
- "workload": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g",
- "kernelslist": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g",
+ "config_dir": "/home/lakshay/btp_work/hbf-gpu-4arch/models/C4_h3_hbf_behind_hbm",
+ "workload": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g",
+ "kernelslist": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g",
+ "lhb": true,
+ "lhb_mib": 16,
+ "subarrays": 512,
  "tR_us": 15.0,
- "prefetch": "on",
  "memory": "hbm2e_slice8",
  "hbf": true,
  "attach": 3,
@@ -16,9 +18,9 @@
  "core_mhz": 1410.0,
  "launch_latency_cycles": 5000,
  "ramulator_tx_bytes": 32,
- "lhb_pages": 2835,
- "prefetch_window": 1418,
- "hints": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/hints/kernelslist.hints",
- "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/W_C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/W_C4/hbf.csv -gpgpu_hbf_trace_level 1",
- "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/W_C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/W_C4/hbf.csv -gpgpu_hbf_trace_level 1 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g"
+ "lhb_pages": 4096,
+ "lhb_fill_pages": 2048,
+ "hints": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/hints/kernelslist.hints",
+ "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/W_C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/W_C4/hbf.csv -gpgpu_hbf_trace_level 1",
+ "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/W_C4/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/W_C4/hbf.csv -gpgpu_hbf_trace_level 1 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g"
 }

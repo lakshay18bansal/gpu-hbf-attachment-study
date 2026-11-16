@@ -10,7 +10,7 @@
 #        Every HBF request pays the GPU front end (134.75 ns, as HBM requests do); each NAND
 #        operation also pays the D2D round trip (BW3 hop + router), 10 ns.
 #   LHB (H3 section III-C) in the HBM base die, filled ahead of use from per-kernel hints;
-#        LHB hits do not cross the D2D link. Added by the runner (prefetch on).
+#        LHB hits do not cross the D2D link. Size set by models/run.sh --lhb-mib (default 16 MiB).
 -gpgpu_hbf_enabled 1
 -gpgpu_hbf_attach 3
 -gpgpu_hbf_l2_policy 1

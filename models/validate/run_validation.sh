@@ -37,32 +37,23 @@ RUNS=(
   "T_C1|C1 vectoradd_nohbf|"
   "T_C2|C2 vectoradd_nohbf|"
   "T_C3|C3 vectoradd_nohbf|"
-  "T_C4|C4 vectoradd_nohbf --prefetch off|"
-  "T_C4_link0|C4 vectoradd_nohbf --prefetch off|-gpgpu_hbf_phy_gbps 0"
-  "A_C4_pfoff|C4 vectoradd --prefetch off|$(csv A_C4_pfoff)"
-  "A_C4_pfoff_hop1000|C4 vectoradd --prefetch off|$(csv A_C4_pfoff_hop1000) -gpgpu_hbf_d2d_hop_ns 1000"
+  "T_C4|C4 vectoradd_nohbf|"
+  "T_C4_link0|C4 vectoradd_nohbf|-gpgpu_hbf_phy_gbps 0"
   "A_C4_hop1000|C4 vectoradd|$(csv A_C4_hop1000) -gpgpu_hbf_d2d_hop_ns 1000"
   "A_C4_link5|C4 vectoradd|$(acc A_C4_link5) -gpgpu_hbf_phy_gbps 5"
   "A_C4_q1|C4 vectoradd|-gpgpu_hbf_h3_queue_size 1"
   # deeper GPU memory controller: 4096 requests in flight per partition instead of 257
   "A_C2_cred4096|C2 vectoradd|$(acc A_C2_cred4096) $(csv A_C2_cred4096) -gpgpu_dram_max_outstanding 4096"
-  "A_C4_pfoff_cred4096|C4 vectoradd --prefetch off|$(acc A_C4_pfoff_cred4096) $(csv A_C4_pfoff_cred4096) -gpgpu_dram_max_outstanding 4096"
   # deadlock check still active: GPGPU-Sim's own 50,000-cycle window must (falsely) fire on HBF writes
   "D_W_C4_win50k|C4 $RW --timeout 3600|-gpgpu_deadlock_window 50000"
-  # parity variants (same mechanism in C2/C3 as in C4) and the tR option
-  "P_C2_pf|C2 vectoradd --prefetch on|$(acc P_C2_pf) $(csv P_C2_pf)"
-  "P_C3_pf|C3 vectoradd --prefetch on|$(acc P_C3_pf) $(csv P_C3_pf)"
-  "P_C2_l2|C2 vectoradd|$(acc P_C2_l2) $(csv P_C2_l2) -gpgpu_hbf_l2_policy 1"
-  "P_C3_l2|C3 vectoradd|$(acc P_C3_l2) $(csv P_C3_l2) -gpgpu_hbf_l2_policy 1"
+  # GPU memory slots (E6), the tR option (E4/E5) and the flash parallelism option (E9)
   "P_C3_cred257|C3 vectoradd|$(acc P_C3_cred257) $(csv P_C3_cred257) -gpgpu_hbf_credits 257"
-  "S_C4_tR3_pfoff|C4 vectoradd --prefetch off --tR-us 3|$(csv S_C4_tR3_pfoff)"
   "S_C4_tR3|C4 vectoradd --tR-us 3|$(csv S_C4_tR3)"
-  "S_C3_bwmatch|C3 vectoradd|$(csv S_C3_bwmatch) -gpgpu_hbf_max_active 1418 -gpgpu_hbf_num_subarrays 1424"
+  "S_C3_sa1024|C3 vectoradd --subarrays 1024|$(csv S_C3_sa1024)"
   # HBF write path: A, B and C all in the HBF window (workloads/vectoradd/hbf_rw)
   "W_C2|C2 $RWS --timeout 14400|$(acc W_C2) $(csv W_C2)"
   "W_C3|C3 $RWS --timeout 14400|$(acc W_C3) $(csv W_C3)"
   "W_C4|C4 $RW --timeout 3600|$(acc W_C4) $(csv W_C4)"
-  "W_C4_pfoff|C4 $RW --prefetch off --timeout 3600|$(acc W_C4_pfoff) $(csv W_C4_pfoff)"
 )
 one() {
   IFS='|' read -r id args extra <<< "$1"

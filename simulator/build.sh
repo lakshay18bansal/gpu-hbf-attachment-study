@@ -19,7 +19,8 @@ JOBS="${1:--j$(nproc 2>/dev/null || echo 4)}"
 
 if [[ -n "${HBF_CONTAINER:-}" && -z "${HBF_IN_CONTAINER:-}" ]]; then
   [[ -f "$HBF_CONTAINER" ]] || { echo "HBF_CONTAINER=$HBF_CONTAINER not found" >&2; exit 2; }
-  exec apptainer exec --bind "$ROOT" "$HBF_CONTAINER" env HBF_IN_CONTAINER=1 bash "$HERE/build.sh" "$JOBS"
+  # --cleanenv: host variables (an active venv, CUDA paths) must not leak into the build
+  exec apptainer exec --cleanenv --bind "$ROOT" "$HBF_CONTAINER" env HBF_IN_CONTAINER=1 bash "$HERE/build.sh" "$JOBS"
 fi
 
 export CUDA_INSTALL_PATH="${CUDA_INSTALL_PATH:-/usr/local/cuda}"

@@ -23,9 +23,9 @@ way. Power is out of scope. Simulator code was read, not run, for this task.
 **Confidence tags used below.** **[P]** comes from the paper's abstract or SK hynix's own summary. **[S-n]** comes from n independent secondary sources that agree. **[R]** is a value another paper attributes to H3 and cites as [H3]. **[D]** is my own derivation and is marked as such. Anything only one secondary source states is marked "(single source)".
 
 Downloaded files:
-- `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/papers/h3_citers/` (8 citing arXiv PDFs and their .txt)
-- `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/papers/ocp_hbf/ocp_hbf_v0.7.0.pdf` and `ocp.txt`
-- `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/papers/sandisk_hbf/factsheet.pdf` and `factsheet.txt`
+- `<scratch>/papers/h3_citers/` (8 citing arXiv PDFs and their .txt)
+- `<scratch>/papers/ocp_hbf/ocp_hbf_v0.7.0.pdf` and `ocp.txt`
+- `<scratch>/papers/sandisk_hbf/factsheet.pdf` and `factsheet.txt`
 
 ---
 

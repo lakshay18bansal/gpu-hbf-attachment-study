@@ -2,7 +2,7 @@
 # the HBF window after the L2 and sends HBF requests through their own L2->HBF queue and
 # credit pool to the HBF stack's own PHY (16 ch x 192 GB/s, HBF-Sim's device), so HBF
 # bandwidth adds to the HBM's 387 GB/s and neither tier blocks the other.
-# Same HBF device and L2 bypass as C2 (HBF-Sim); no prefetcher.
+# Same HBF device and L2 bypass as C2 (HBF-Sim); no latency-hiding buffer.
 -gpgpu_hbf_enabled 1
 -gpgpu_hbf_attach 1
 -gpgpu_hbf_l2_policy 0

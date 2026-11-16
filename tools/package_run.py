@@ -12,11 +12,14 @@ For every run folder this writes <output dir>/<run name>/ with:
       gpu_sim_insn, gpu_tot_sim_cycle, gpu_tot_sim_insn),
     - the complete final statistics block (from the last kernel_name line to the end).
   kernel_cycles.csv: index, kernel uid, cycles, cumulative cycles, kernel name.
+  run.log.xz (with --log-xz): the complete simulator output, xz-compressed (an 80 MB full-token
+  log becomes about 1.5 MB). Unpack with: xz -dk run.log.xz
 models/validate/summarize.py and models/compare.py read run_stats.log when run.log is absent.
 """
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -63,6 +66,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('runs', nargs='+', type=Path)
     ap.add_argument('-o', '--out', type=Path, required=True)
+    ap.add_argument('--log-xz', action='store_true', help='also store the full run.log, xz-compressed')
     a = ap.parse_args()
     for run in a.runs:
         if not (run / 'run.log').exists():
@@ -74,6 +78,9 @@ def main():
             if (run / f).exists():
                 shutil.copy2(run / f, dst / f)
         n = trim(run / 'run.log', dst / 'run_stats.log', dst / 'kernel_cycles.csv')
+        if a.log_xz:
+            with open(dst / 'run.log.xz', 'wb') as f:
+                subprocess.run(['xz', '-T4', '-6', '-c', str(run / 'run.log')], stdout=f, check=True)
         print(f'{run.name}: {n} kernels -> {dst}')
 
 

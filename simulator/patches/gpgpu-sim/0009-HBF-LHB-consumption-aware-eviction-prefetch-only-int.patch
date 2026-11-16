@@ -1,0 +1,278 @@
+From 2f028f0ca99a2807d13a80bcc1c3bc8ebd0a708d Mon Sep 17 00:00:00 2001
+From: Lakshay <lakshay810bansal@gmail.com>
+Date: Wed, 11 Nov 2026 20:47:32 +0000
+Subject: [PATCH] HBF LHB: consumption-aware eviction, prefetch only into free
+ space
+
+A GPU reads a 4 KiB page as many 32 B sectors from many warps, so a page
+that has been demanded once is usually still being read. The LHB evicted
+demanded pages first, and at short tR (3-5 us) the prefetcher kept pushing
+out partly read pages: pages were read from NAND up to 9 times and C4 was
+up to 3.4x slower than at tR 15 us.
+
+- the LHB counts the bytes delivered from each resident page; a page is
+  finished when every byte has gone to the GPU
+- victims: finished pages (LRU), then stale used pages (no request for
+  -gpgpu_hbf_lhb_stale_ns, default one tR), then live used pages, then
+  never-used prefetches
+- the prefetcher issues a read only when the LHB can free a page without
+  evicting live data
+- new statistic: HBF LHB Evictions (finished/stale/live/wasted)
+
+vectorAdd with the LHB is unchanged to the cycle (no evictions). Qwen3
+layer 13 at tR 15 us changes by +0.25%; at tR 3/5 us every page is now read
+once.
+---
+ src/gpgpu-sim/gpu-sim.cc        |   5 ++
+ src/gpgpu-sim/gpu-sim.h         |   3 +
+ src/gpgpu-sim/hbf_controller.cc |  19 +++++-
+ src/gpgpu-sim/hbf_controller.h  | 111 +++++++++++++++++++++++++-------
+ 4 files changed, 114 insertions(+), 24 deletions(-)
+
+diff --git a/src/gpgpu-sim/gpu-sim.cc b/src/gpgpu-sim/gpu-sim.cc
+index 689a7957..be460ef1 100644
+--- a/src/gpgpu-sim/gpu-sim.cc
++++ b/src/gpgpu-sim/gpu-sim.cc
+@@ -671,6 +671,11 @@ void memory_config::reg_options(class OptionParser *opp) {
+                          &hbf_lhb_hit_latency_ns,
+                          "LHB hit latency in ns; overrides -gpgpu_hbf_lhb_hit_latency when > 0 (default 0)",
+                          "0");
++  option_parser_register(opp, "-gpgpu_hbf_lhb_stale_ns", OPT_DOUBLE,
++                         &hbf_lhb_stale_ns,
++                         "A partly read LHB page with no request for this long may be evicted before "
++                         "live pages; 0 = one tR (default 0)",
++                         "0");
+   option_parser_register(opp, "-gpgpu_hbf_l2_queue_size", OPT_UINT32,
+                          &hbf_l2_queue_size,
+                          "attach 1/2: L2->HBF queue entries per sub-partition (default 8)",
+diff --git a/src/gpgpu-sim/gpu-sim.h b/src/gpgpu-sim/gpu-sim.h
+index 234ab4f7..9ebb736c 100644
+--- a/src/gpgpu-sim/gpu-sim.h
++++ b/src/gpgpu-sim/gpu-sim.h
+@@ -624,6 +624,9 @@ class memory_config {
+   unsigned hbf_lhb_pages;            // LHB capacity in pages
+   unsigned hbf_lhb_hit_latency;      // DRAM ticks
+   double hbf_lhb_hit_latency_ns;
++  // A used LHB page counts as stale (evictable before live pages) after this
++  // long without a request; 0 = one tR.
++  double hbf_lhb_stale_ns;
+ 
+   // Check if an address falls in the HBF range
+   bool is_hbf_addr(new_addr_type addr) const {
+diff --git a/src/gpgpu-sim/hbf_controller.cc b/src/gpgpu-sim/hbf_controller.cc
+index 4dc7bd97..556bf194 100644
+--- a/src/gpgpu-sim/hbf_controller.cc
++++ b/src/gpgpu-sim/hbf_controller.cc
+@@ -155,7 +155,10 @@ hbf_controller_t::hbf_controller_t(unsigned partition_id,
+       fprintf(stderr, "HBF: -gpgpu_hbf_prefetch_file needs -gpgpu_hbf_lhb_pages > 0\n");
+       exit(1);
+     }
+-    m_lhb.configure(lhb);
++    unsigned long long stale = m_config->hbf_lhb_stale_ns > 0
++        ? (unsigned long long)(m_config->hbf_lhb_stale_ns * m_dram_freq_mhz / 1e3 + 0.5)
++        : m_config->hbf_tR;
++    m_lhb.configure(lhb, m_config->hbf_page_size, stale);
+     m_pf_window = m_config->hbf_prefetch_window > 0 ? m_config->hbf_prefetch_window : lhb;
+     if (m_pf_window > lhb) m_pf_window = lhb;  // undemanded pages must fit
+   }
+@@ -456,7 +459,7 @@ void hbf_controller_t::push(mem_fetch *data) {
+   // cache-hit path in cycle() delivers it (through the channel link credit).
+   if (m_lhb.enabled() && m_lhb.contains(page_addr)) {
+     unsigned long long fill_tick = 0;
+-    if (m_lhb.demand(page_addr, &fill_tick)) {
++    if (m_lhb.demand(page_addr, &fill_tick, current_tick)) {
+       assert(m_pf_undemanded > 0);
+       m_pf_undemanded--;
+       n_pf_useful++;
+@@ -858,6 +861,13 @@ void hbf_controller_t::cycle() {
+         n_first_request_pages++;
+         it->second.first_delivery_recorded = true;
+       }
++      if (m_lhb.enabled()) {  // LHB: count the page's bytes delivered so far
++        unsigned bytes = 0;
++        for (unsigned i = 0; i < delivered; ++i)
++          if (!it->second.pending[i]->get_is_write())
++            bytes += it->second.pending[i]->get_data_size();
++        if (bytes) m_lhb.consume(it->second.phys_page, bytes, current_tick);
++      }
+       it->second.pending.erase(it->second.pending.begin(),
+                                it->second.pending.begin() + delivered);
+     }
+@@ -973,7 +983,10 @@ void hbf_controller_t::issue_prefetches() {
+   unsigned max_q = m_config->hbf_max_outstanding;
+   unsigned pf_cap = max_q == 0 ? ~0u : max_q - max_q / 4;
+   const unsigned long long run_ahead = m_config->hbf_lhb_pages;
++  // Fill only space that holds no live data (free, finished or stale pages).
++  const unsigned room = m_lhb.prefetch_room(m_hbf_tick);
+   while (!m_pf_stream.empty() && m_pf_inflight < m_pf_window &&
++         m_pf_inflight < room &&
+          m_pf_next_idx < m_pf_demand_front + run_ahead &&
+          m_mshr.size() + m_write_buffer.size() < pf_cap) {
+     unsigned long long page = m_pf_stream.front();
+@@ -1395,6 +1408,8 @@ void hbf_controller_t::print_stat(FILE *simFile) {
+     fprintf(simFile, "HBF LHB Hits: pages=%llu requests=%llu (%.2f%% of read requests)\n",
+             n_lhb_page_hits, n_lhb_request_hits,
+             n_read_requests ? 100.0 * n_lhb_request_hits / n_read_requests : 0.0);
++    fprintf(simFile, "HBF LHB Evictions: finished=%llu stale=%llu live=%llu wasted_prefetch=%llu\n",
++            m_lhb.n_evict_finished, m_lhb.n_evict_stale, m_lhb.n_evict_live, n_pf_wasted);
+     fprintf(simFile, "HBF Prefetch Lead: avg=%.1f ticks (%.3f us) over %llu pages\n",
+             n_pf_lead_count ? n_pf_lead_ticks / n_pf_lead_count : 0.0,
+             n_pf_lead_count ? n_pf_lead_ticks / n_pf_lead_count / m_dram_freq_mhz : 0.0,
+diff --git a/src/gpgpu-sim/hbf_controller.h b/src/gpgpu-sim/hbf_controller.h
+index 5c30c7f4..e914a54c 100644
+--- a/src/gpgpu-sim/hbf_controller.h
++++ b/src/gpgpu-sim/hbf_controller.h
+@@ -238,13 +238,24 @@ class hbf_write_coverage_t {
+ };
+ 
+ // Latency-hiding buffer (LHB) of the HBF prefetcher (-gpgpu_hbf_prefetch_file).
+-// Holds whole 4 KiB pages.  Pages that were prefetched but not yet demanded
+-// sit in a FIFO and are evicted only when every resident page is undemanded;
+-// demanded pages are kept in LRU order and are evicted first.
++// Holds whole 4 KiB pages in three lists:
++//   finished    every byte of the page has been delivered (LRU order)
++//   demanded    used, but not every byte delivered yet (LRU order by last use)
++//   undemanded  prefetched, not used yet (FIFO by fill)
++// A GPU reads a page as many 32 B sectors from many warps, so a page that has
++// been used once is usually still being read.  Victims, in order: finished,
++// then stale demanded (no use for stale_ticks), then live demanded, then
++// undemanded (a wasted prefetch).  The prefetcher only issues a read when a
++// page can be freed without evicting live data (prefetch_room()).
+ class hbf_lhb_t {
+  public:
+-  hbf_lhb_t() : m_capacity(0) {}
+-  void configure(unsigned capacity) { m_capacity = capacity; }
++  hbf_lhb_t() : m_capacity(0), m_page_bytes(4096), m_stale_ticks(0) {}
++  void configure(unsigned capacity, unsigned page_bytes,
++                 unsigned long long stale_ticks) {
++    m_capacity = capacity;
++    m_page_bytes = page_bytes ? page_bytes : 4096;
++    m_stale_ticks = stale_ticks;
++  }
+   bool enabled() const { return m_capacity > 0; }
+   unsigned size() const { return (unsigned)m_index.size(); }
+   bool contains(unsigned long long page) const {
+@@ -252,47 +263,103 @@ class hbf_lhb_t {
+   }
+   // Demand access.  Returns true when this is the page's first demand (it
+   // was prefetched and never used); *fill_tick gets the tick it arrived.
+-  bool demand(unsigned long long page, unsigned long long *fill_tick) {
++  bool demand(unsigned long long page, unsigned long long *fill_tick,
++              unsigned long long tick) {
+     auto it = m_index.find(page);
+     if (it == m_index.end()) return false;
+-    *fill_tick = it->second.fill_tick;
+-    bool first = !it->second.demanded;
+-    (first ? m_undemanded : m_demanded).erase(it->second.pos);
+-    m_demanded.push_front(page);
+-    it->second.pos = m_demanded.begin();
+-    it->second.demanded = true;
++    entry_t &e = it->second;
++    *fill_tick = e.fill_tick;
++    bool first = !e.demanded;
++    list_of(e).erase(e.pos);
++    e.demanded = true;
++    e.last_tick = tick;
++    list_of(e).push_front(page);
++    e.pos = list_of(e).begin();
+     return first;
+   }
++  // Bytes of a resident page delivered to the GPU.
++  void consume(unsigned long long page, unsigned bytes,
++               unsigned long long tick) {
++    auto it = m_index.find(page);
++    if (it == m_index.end()) return;
++    entry_t &e = it->second;
++    e.last_tick = tick;
++    e.consumed += bytes;
++    if (!e.finished && e.demanded && e.consumed >= m_page_bytes) {
++      m_demanded.erase(e.pos);
++      e.finished = true;
++      m_finished.push_front(page);
++      e.pos = m_finished.begin();
++    }
++  }
+   // Returns the number of never-demanded pages evicted to make room.
+   unsigned insert(unsigned long long page, bool demanded,
+                   unsigned long long tick) {
+     if (m_capacity == 0 || contains(page)) return 0;
+     unsigned wasted = 0;
+     while (m_index.size() >= m_capacity) {
+-      std::list<unsigned long long> &victims =
+-          m_demanded.empty() ? m_undemanded : m_demanded;
+-      if (&victims == &m_undemanded) ++wasted;
+-      m_index.erase(victims.back());
+-      victims.pop_back();
++      std::list<unsigned long long> *victims;
++      if (!m_finished.empty()) {
++        victims = &m_finished;
++        n_evict_finished++;
++      } else if (!m_demanded.empty() && stale(m_demanded.back(), tick)) {
++        victims = &m_demanded;
++        n_evict_stale++;
++      } else if (!m_demanded.empty()) {
++        victims = &m_demanded;
++        n_evict_live++;
++      } else {
++        victims = &m_undemanded;
++        ++wasted;
++      }
++      m_index.erase(victims->back());
++      victims->pop_back();
+     }
+-    std::list<unsigned long long> &dst = demanded ? m_demanded : m_undemanded;
+-    dst.push_front(page);
+     entry_t e;
+-    e.pos = dst.begin();
+     e.demanded = demanded;
+     e.fill_tick = tick;
++    e.last_tick = tick;
++    list_of(e).push_front(page);
++    e.pos = list_of(e).begin();
+     m_index[page] = e;
+     return wasted;
+   }
++  // Pages that could be filled now without evicting live data: free slots,
++  // finished pages and stale demanded pages.
++  unsigned prefetch_room(unsigned long long tick) const {
++    unsigned room = m_capacity > m_index.size()
++                        ? m_capacity - (unsigned)m_index.size() : 0;
++    room += (unsigned)m_finished.size();
++    for (auto it = m_demanded.rbegin(); it != m_demanded.rend(); ++it) {
++      if (!stale(*it, tick)) break;  // LRU order: the rest are newer
++      room++;
++    }
++    return room;
++  }
+   unsigned undemanded() const { return (unsigned)m_undemanded.size(); }
++  unsigned long long n_evict_finished = 0, n_evict_stale = 0,
++                     n_evict_live = 0;
+ 
+  private:
+   struct entry_t {
+     std::list<unsigned long long>::iterator pos;
+-    bool demanded;
+-    unsigned long long fill_tick;
++    bool demanded = false;
++    bool finished = false;
++    unsigned consumed = 0;
++    unsigned long long fill_tick = 0;
++    unsigned long long last_tick = 0;
+   };
++  std::list<unsigned long long> &list_of(const entry_t &e) {
++    return e.finished ? m_finished : e.demanded ? m_demanded : m_undemanded;
++  }
++  bool stale(unsigned long long page, unsigned long long tick) const {
++    auto it = m_index.find(page);
++    return it != m_index.end() && tick >= it->second.last_tick + m_stale_ticks;
++  }
+   unsigned m_capacity;
++  unsigned m_page_bytes;
++  unsigned long long m_stale_ticks;
++  std::list<unsigned long long> m_finished;    // front = most recently used
+   std::list<unsigned long long> m_demanded;    // front = most recently used
+   std::list<unsigned long long> m_undemanded;  // front = newest fill
+   std::unordered_map<unsigned long long, entry_t> m_index;
+-- 
+2.43.0
+

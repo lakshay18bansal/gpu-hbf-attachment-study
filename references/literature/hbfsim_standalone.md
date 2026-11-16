@@ -7,7 +7,7 @@ gpgpu-sim at `gpu-simulator/gpgpu-sim`, pinned `6c3cf4ff`). The 16 model files i
 byte-identical to the copies in `gpu-simulator/gpgpu-sim/src/gpgpu-sim/`; I checked this with `cmp`.
 
 All runs were done in my scratch copy
-`/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-hbfsim-standalone/`
+`<scratch>/code-hbfsim-standalone/`
 inside `containers/accelsim.sif`, one process at a time, with `nice -n 10`. Nothing was written into
 `accel_sim_hbf/` or `accelsim-work/`. I checked this with `find -mmin`: the only recent changes were
 `.git` metadata, and I ran no git commands.
@@ -401,7 +401,7 @@ max_active 8, tR/tPROG/tBERS = 20/40/80 ticks, write policy 0, trace level 1) â†
 run â†’ validate.
 
 ```
-apptainer exec --bind ~/btp_work --bind /tmp/claude-1000 containers/accelsim.sif \
+apptainer exec --bind ~/btp_work --bind <scratch> containers/accelsim.sif \
    bash $S/run_lud_smoke.sh lud-001           # NOREMAP=1 + 's/^-gpgpu_hbf_enabled .*/-gpgpu_hbf_enabled 0/' = DRAM baseline
 ```
 
@@ -528,4 +528,4 @@ recomputed for that frequency. Otherwise the NAND timings would be silently wron
 * `$S/qwen_peek/`: one Qwen3 kernel, `kernelslist.g`, and the remap `manifest.json`, extracted from the
   bundled tar.
 
-(`$S` = `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-hbfsim-standalone`)
+(`$S` = `<scratch>/code-hbfsim-standalone`)

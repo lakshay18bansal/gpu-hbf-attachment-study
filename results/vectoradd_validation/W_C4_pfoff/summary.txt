@@ -1,8 +1,0 @@
-C4 /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g prefetch=off rc=0
-  cycles 3,916,561  time 2777.70 us  kernels 1  insn 14,680,064
-  L2 accesses 393,216 misses 311,296
-  HBM/DRAM read 0 B write 0 B = 0.00 GB/s of 387.07
-  HBF requests 190,464 page reads 9,139 MSHR hits 171,085 bytes read 5,767,168 = 2.08 GB/s; read latency avg 16464 cycles
-  attach: admitted 190,464 returned 188,742; E2E latency avg 46582 p50 42096 p99 136912 cycles
-  H3 base die routed hbm 0 hbf 190,464 (router stall ticks 0); GPU DRAM credits max 257 / 257
-  H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,767,168 B

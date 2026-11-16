@@ -16,6 +16,6 @@ T=()
 if [[ -n "${HBF_CONTAINER:-}" ]]; then
   B=(--bind "$ROOT" --bind /tmp)
   [[ "$PWD" == "$ROOT"* ]] || B+=(--bind "$PWD")
-  exec "${T[@]}" nice -n 10 apptainer exec "${B[@]}" "$HBF_CONTAINER" "$BIN" "$@"
+  exec "${T[@]}" nice -n 10 apptainer exec --cleanenv "${B[@]}" "$HBF_CONTAINER" "$BIN" "$@"
 fi
 exec "${T[@]}" nice -n 10 "$BIN" "$@"

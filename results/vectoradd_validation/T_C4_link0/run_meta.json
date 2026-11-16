@@ -1,11 +1,13 @@
 {
  "study": "hbfsim_4arch",
  "config": "C4",
- "config_dir": "/home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/C4_h3_hbf_behind_hbm",
+ "config_dir": "/home/lakshay/btp_work/hbf-gpu-4arch/models/C4_h3_hbf_behind_hbm",
  "workload": "vectoradd_nohbf",
- "kernelslist": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/original/kernelslist.g",
+ "kernelslist": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/original/kernelslist.g",
+ "lhb": true,
+ "lhb_mib": 16,
+ "subarrays": 512,
  "tR_us": 15.0,
- "prefetch": "off",
  "memory": "hbm2e_slice8",
  "hbf": true,
  "attach": 3,
@@ -16,9 +18,9 @@
  "core_mhz": 1410.0,
  "launch_latency_cycles": 5000,
  "ramulator_tx_bytes": 32,
- "lhb_pages": 0,
- "prefetch_window": 0,
- "hints": "",
+ "lhb_pages": 4096,
+ "lhb_fill_pages": 2048,
+ "hints": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/original/hints/kernelslist.hints",
  "extra": "-gpgpu_hbf_phy_gbps 0",
- "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_hbf_phy_gbps 0 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/original/kernelslist.g"
+ "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_hbf_phy_gbps 0 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/original/kernelslist.g"
 }

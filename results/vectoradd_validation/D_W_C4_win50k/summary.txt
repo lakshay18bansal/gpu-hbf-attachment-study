@@ -1,2 +1,2 @@
-C4 /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g prefetch=on rc=1
+C4 /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g tR=15us LHB=16MiB rc=1
   no statistics (run failed?)

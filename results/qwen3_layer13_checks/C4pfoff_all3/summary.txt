@@ -1,8 +1,0 @@
-C4 qwen3_layer13 prefetch=off rc=0
-  cycles 13,509,975  time 9581.54 us  kernels 64  insn 433,805,850
-  L2 accesses 4,833,948 misses 3,165,573
-  HBM/DRAM read 162,688 B write 459,808 B = 0.06 GB/s of 387.07
-  HBF requests 3,146,000 page reads 487,991 MSHR hits 2,658,009 bytes read 100,672,000 = 10.51 GB/s; read latency avg 10144 cycles
-  attach: admitted 3,146,000 returned 3,146,000; E2E latency avg 16459 p50 20368 p99 42480 cycles
-  H3 base die routed hbm 8,682 hbf 3,146,000 (router stall ticks 0); GPU DRAM credits max 257 / 257
-  H3 link 0.0 GB/s/partition: down 459,808 B, up HBM 162,688 B, up HBF 100,672,000 B

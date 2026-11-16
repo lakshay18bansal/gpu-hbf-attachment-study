@@ -24,8 +24,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(os.environ.get("RAMULATOR_PYTHON",
-                               "/home/lakshay/btp_work/accelsim-work/ramulator/python"))
+sys.path.append(os.environ.get("RAMULATOR_PYTHON", os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "simulator", "ramulator2", "python")))
 import ramulator  # noqa: E402
 from accelsim_common import (apply_overrides, build_system,  # noqa: E402
                              ns_to_cycles, summary, timings_at_rate)

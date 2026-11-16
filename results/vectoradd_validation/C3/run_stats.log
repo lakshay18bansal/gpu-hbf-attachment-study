@@ -1,7 +1,7 @@
 # run_stats.log: run.log reduced by tools/package_run.py (option dump, per-kernel lines, complete final statistics block)
-Accel-Sim [build accelsim-commit-d930ad6_modified_0.0_26-11-05-11-30-04]
+Accel-Sim [build accelsim-commit-aead5a1_modified_2.0_26-11-11-20-28-01]
 
-        *** GPGPU-Sim Simulator Version 4.2.0  [build gpgpu-sim_git-commit-48227007_modified_9.0.] ***
+        *** GPGPU-Sim Simulator Version 4.2.0  [build gpgpu-sim_git-commit-aead5a1_modified_2.0.] ***
 
 
 GPGPU-Sim: Configuration options:
@@ -228,7 +228,7 @@ GPGPU-Sim: Configuration options:
 -gpgpu_hbf_read_agg_threshold                 4096 # Read aggregation byte threshold (default page size)
 -gpgpu_hbf_write_timeout_policy                    0 # Write timeout: 0=partial compatibility, 1=strict error accounting (default 1)
 -gpgpu_hbf_l2_policy                    0 # HBF L2 policy: 0=bypass (default), 1=experimental cached mode
--gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/C3/hbf.csv # CSV request trace path (empty disables tracing)
+-gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/C3/hbf.csv # CSV request trace path (empty disables tracing)
 -gpgpu_hbf_trace_level                    1 # Trace level: 0=off, 1=lifecycle, 2=flush each event (default 0)
 -gpgpu_hbf_idle_drain_quiet                  100 # Quiet period before an idle device drains its write buffer, in DRAM ticks (default 100)
 -gpgpu_hbf_tR_ns                    15000 # NAND page read latency in ns; overrides -gpgpu_hbf_tR when > 0 (default 0)
@@ -240,13 +240,16 @@ GPGPU-Sim: Configuration options:
 -gpgpu_hbf_write_drain_maxwait_ns              13227.5 # Max time a write window may delay reads, in ns; overrides -gpgpu_hbf_write_drain_maxwait when > 0 (default 0)
 -gpgpu_hbf_read_agg_window_ns                    0 # Read aggregation window in ns; overrides -gpgpu_hbf_read_agg_window when > 0 (default 0)
 -gpgpu_hbf_idle_drain_quiet_ns                    0 # Idle write-drain quiet period in ns; overrides -gpgpu_hbf_idle_drain_quiet when > 0 (default 0)
--gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/C3/access.txt # Write one line per memory request leaving the L2 for DRAM/HBM or HBF: <core cycle> <address> <R|W>; empty disables (default "")
+-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/C3/access.txt # Write one line per memory request leaving the L2 for DRAM/HBM or HBF: <core cycle> <address> <R|W>; empty disables (default "")
 -gpgpu_mem_access_trace_detail                    1 # 1 = add <DRAM|HBF> <partition> <L2 sub-partition> <bytes> to every trace line (default 0)
 -gpgpu_hbf_attach                       1 # HBF attachment: 0=legacy (shares DRAM queue and credits), 1=direct (own queue and credits), 2=behind HBM (1 + shared PHY), 3=H3 (GPU sends everything to HBM; the HBM base die routes to HBF) (default 0)
 -gpgpu_hbf_credits                  32768 # attach 1/2: outstanding HBF requests per memory partition (default 32768)
 -gpgpu_hbf_frontend_latency_ns              134.752 # fixed latency added to every HBF request (GPU MC + PHY; attach 2: + base-die/D2D hop behind HBM; attach 3: the hop is -gpgpu_hbf_d2d_hop), in ns (default 0)
 -gpgpu_hbf_phy_gbps                     0 # attach 2/3: GB/s of the per-partition PHY shared by HBM and HBF bytes; 0=unlimited (default 0)
 -gpgpu_hbf_h3_queue_size                   64 # attach 3: HBM base-die ingress queue and D2D (to HBF) queue entries per partition (default 64)
+-gpgpu_hbf_h3_issues_per_tick                    1 # attach 3: requests per partition per DRAM tick that the GPU MC issues and the base-die router decodes (default 1)
+-gpgpu_hbf_h3_admits_per_tick                    1 # attach 3: requests per partition per DRAM tick admitted from the D2D queue into the HBF stack (default 1)
+-gpgpu_hbf_h3_returns_per_tick                    1 # attach 3: HBF replies per partition per DRAM tick, at most one per sub-partition (default 1)
 -gpgpu_hbf_d2d_hop                      0 # attach 3: HBM base die <-> HBF base die round trip added to every NAND operation, in DRAM ticks (default 0)
 -gpgpu_hbf_d2d_hop_ns                    0 # attach 3: -gpgpu_hbf_d2d_hop in ns; overrides the tick value when > 0 (default 0)
 -gpgpu_dram_max_outstanding                  257 # GPU-side DRAM requests in flight per memory partition (arbitration credits); 0 = the DRAM model's own limit (default 0)
@@ -256,6 +259,7 @@ GPGPU-Sim: Configuration options:
 -gpgpu_hbf_lhb_pages                    0 # Latency-hiding buffer capacity in pages (default 0)
 -gpgpu_hbf_lhb_hit_latency                   50 # LHB hit latency in DRAM ticks (default 50)
 -gpgpu_hbf_lhb_hit_latency_ns                    0 # LHB hit latency in ns; overrides -gpgpu_hbf_lhb_hit_latency when > 0 (default 0)
+-gpgpu_hbf_lhb_stale_ns                    0 # A partly read LHB page with no request for this long may be evicted before live pages; 0 = one tR (default 0)
 -gpgpu_hbf_l2_queue_size                   64 # attach 1/2: L2->HBF queue entries per sub-partition (default 8)
 -gpgpu_mem_addr_mapping dramid@8;00000000.00000000.00000000.00000000.0000RRRR.RRRRRRRR.RBBBCCCC.BCCSSSSS # mapping memory address to dram model {dramid@<start bit>;<memory address map>}
 -gpgpu_mem_addr_test                    0 # run sweep test to check address mapping for aliased address
@@ -323,7 +327,7 @@ GPGPU-Sim: Configuration options:
 -gpgpu_kernel_launch_latency                 5000 # Kernel launch latency in cycles. Default: 0
 -gpgpu_cdp_enabled                      0 # Turn on CDP
 -gpgpu_TB_launch_latency                    0 # thread block launch latency in cycles. Default: 0
--trace               /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g # traces kernel filetraces kernel file directory
+-trace               /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g # traces kernel filetraces kernel file directory
 -trace_opcode_latency_initiation_int                  2,2 # Opcode latencies and initiation for integers in trace driven mode <latency,initiation>
 -trace_opcode_latency_initiation_sp                  2,2 # Opcode latencies and initiation for sp in trace driven mode <latency,initiation>
 -trace_opcode_latency_initiation_dp                  4,4 # Opcode latencies and initiation for dp in trace driven mode <latency,initiation>
@@ -371,7 +375,7 @@ GPGPU-Sim uArch: HBF attach=1 (direct) credits/partition=32768 frontend=134.75 n
 GPGPU-Sim uArch: performance model initialization complete.
 launching memcpy command : MemcpyHtoD,0x0000004000000000,4194304
 launching memcpy command : MemcpyHtoD,0x0000004000400000,4194304
-Processing kernel /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernel-1-ctx_0x58c3df702fd0.traceg
+Processing kernel /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernel-1-ctx_0x58c3df702fd0.traceg
 -kernel name = _Z9vectorAddPKfS0_Pfi
 -kernel id = 1
 -grid dim = (4096,1,1)
@@ -385,7 +389,7 @@ Processing kernel /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/k
 -nvbit version = 1.8
 -accelsim tracer version = 6
 -enable lineinfo = 0
-Header info loaded for kernel command : /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernel-1-ctx_0x58c3df702fd0.traceg
+Header info loaded for kernel command : /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernel-1-ctx_0x58c3df702fd0.traceg
 launching kernel name: _Z9vectorAddPKfS0_Pfi uid: 1 cuda_stream_id: 0
 GPGPU-Sim uArch: Shader 0 bind to kernel 1 '_Z9vectorAddPKfS0_Pfi'
 GPGPU-Sim uArch: CTA/core = 8, limited by: threads
@@ -16805,7 +16809,7 @@ partiton_level_parallism_util =       4.1571
 partiton_level_parallism_util_total  =       4.1571
 L2_BW  =       6.4291 GB/Sec
 L2_BW_total  =       6.4291 GB/Sec
-gpu_total_sim_rate=10606
+gpu_total_sim_rate=10630
 
 ========= Core cache stats =========
 L1I_cache:
@@ -17416,9 +17420,9 @@ Reply_Network_out_buffer_avg_util =       0.0178
 ----------------------------END-of-Interconnect-DETAILS-------------------------
 
 
-gpgpu_simulation_time = 0 days, 0 hrs, 23 min, 4 sec (1384 sec)
-gpgpu_simulation_rate = 10606 (inst/sec)
-gpgpu_simulation_rate = 1993 (cycle/sec)
-gpgpu_silicon_slowdown = 707476x
+gpgpu_simulation_time = 0 days, 0 hrs, 23 min, 1 sec (1381 sec)
+gpgpu_simulation_rate = 10630 (inst/sec)
+gpgpu_simulation_rate = 1998 (cycle/sec)
+gpgpu_silicon_slowdown = 705705x
 GPGPU-Sim: *** simulation thread exiting ***
 GPGPU-Sim: *** exit detected ***

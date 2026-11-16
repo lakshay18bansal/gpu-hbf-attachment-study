@@ -10,7 +10,7 @@ captions that survived text extraction). Text was extracted with pypdf from the 
 | 3 | HBF Sucks? A Full-Stack Characterization of HBF for KV-Centric LLM Serving (Li, ..., Zhuo, PKU) | 2608.11668v4, 14 Sep 2026, 13 pp | `.../scratchpad/papers/partA_2608.11668/p.{pdf,txt}` |
 | 4 | Exploring HBF for Modern LLM Inference: Opportunities and Challenges (Son, Park, ..., Mutlu, Lee, Kim, Park, POSTECH/ETH), IEEE CAL, DOI 10.1109/LCA.2026.3705817 | 2608.13868v1, 14 Aug 2026, 4 pp | `.../scratchpad/papers/partA_2608.13868/p.{pdf,txt}` |
 
-(`...` = `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670`)
+(`...` = `<scratch>`)
 
 Limitation: the numbers inside bar charts are mostly not in the extracted text. I quote only numbers
 that appear in the body text, in tables, or as data labels the extraction picked up. When a value

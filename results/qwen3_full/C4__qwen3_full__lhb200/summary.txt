@@ -1,0 +1,10 @@
+C4 qwen3_full tR=15us LHB=200MiB rc=0
+  cycles 37,748,693  time 26772.12 us  kernels 1819  insn 14,733,970,376
+  L2 accesses 164,601,619 misses 108,071,105; GPU memory latency avg 832 cycles
+  HBM/DRAM read 4,436,480 B write 13,604,896 B = 0.67 GB/s of 387.07
+  HBF requests 107,536,064 page reads 840,178 MSHR hits 74,068,623 bytes read 3,441,154,048 = 128.53 GB/s; read latency avg 46 cycles
+  attach: admitted 107,536,064 returned 107,536,064; E2E latency avg 227 p50 240 p99 304 cycles
+  H3 base die routed hbm 245,090 hbf 107,536,064 (router stall ticks 0); GPU DRAM credits max 257 / 257
+  H3 link 48.384 GB/s/partition: down 13,604,896 B, up HBM 4,436,480 B, up HBF 3,441,154,048 B
+  flash read amplification 1.0001; array busy 93.409%
+  LHB request hits 107,535,936 (100.00%); fills 840,178, wasted 0, live evictions 0; data ready 1234.31 us before use

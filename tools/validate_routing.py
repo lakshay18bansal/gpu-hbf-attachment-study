@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Validate address routing and interconnects of C1-C4, request by request (vectorAdd).
+"""Address-decoder and trace helpers used by models/validate/check.py (AddrDec, frontend_delays,
+ramulator_channels, read_access).
+
+The standalone runner below (main) is from the first version of the study and expects its folder
+layout (scripts/run_config.sh); use models/validate/run_validation.sh for the current checks.
+
+Original description: validate address routing and interconnects of C1-C4, request by request (vectorAdd).
 
 For every configuration one vectorAdd run is made with the per-request access trace
 (-gpgpu_mem_access_trace_file + _detail 1: cycle addr R/W tier partition l2_sub bytes) and, for

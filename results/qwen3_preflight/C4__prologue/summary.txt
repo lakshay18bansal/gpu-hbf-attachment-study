@@ -1,9 +1,0 @@
-C4 qwen3_prologue prefetch=on rc=0
-  cycles 115,680  time 82.04 us  kernels 18  insn 282,695
-  L2 accesses 638 misses 359
-  HBM/DRAM read 384 B write 0 B = 0.00 GB/s of 387.07
-  HBF requests 128 page reads 1 MSHR hits 128 bytes read 4,096 = 0.05 GB/s; read latency avg 21181 cycles
-  attach: admitted 128 returned 128; E2E latency avg 15240 p50 15248 p99 15280 cycles
-  H3 base die routed hbm 12 hbf 128 (router stall ticks 0); GPU DRAM credits max 16 / 257
-  H3 link 48.384 GB/s/partition: down 0 B, up HBM 384 B, up HBF 4,096 B
-  LHB request hits 0

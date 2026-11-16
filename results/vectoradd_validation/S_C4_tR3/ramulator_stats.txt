@@ -10,15 +10,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 0
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -31,19 +31,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 181010
+      queue_len: 198325
       read_queue_len: 0
-      write_queue_len: 180665
-      priority_queue_len: 345
-      queue_len_avg: 2.22486
+      write_queue_len: 197936
+      priority_queue_len: 389
+      queue_len_avg: 2.49114
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.22062
-      priority_queue_len_avg: 0.00424052
+      write_queue_len_avg: 2.48626
+      priority_queue_len_avg: 0.0048862
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -63,15 +63,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 1
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -84,19 +84,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 181939
+      queue_len: 197343
       read_queue_len: 0
-      write_queue_len: 181618
-      priority_queue_len: 321
-      queue_len_avg: 2.23628
+      write_queue_len: 196946
+      priority_queue_len: 397
+      queue_len_avg: 2.47881
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.23233
-      priority_queue_len_avg: 0.00394552
+      write_queue_len_avg: 2.47382
+      priority_queue_len_avg: 0.00498669
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -116,15 +116,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 2
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -137,19 +137,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 197676
+      queue_len: 202226
       read_queue_len: 0
-      write_queue_len: 197249
-      priority_queue_len: 427
-      queue_len_avg: 2.42971
+      write_queue_len: 201821
+      priority_queue_len: 405
+      queue_len_avg: 2.54014
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.42446
-      priority_queue_len_avg: 0.00524841
+      write_queue_len_avg: 2.53506
+      priority_queue_len_avg: 0.00508717
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -169,15 +169,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 3
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -190,19 +190,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 190859
+      queue_len: 203380
       read_queue_len: 0
-      write_queue_len: 190486
-      priority_queue_len: 373
-      queue_len_avg: 2.34592
+      write_queue_len: 202973
+      priority_queue_len: 407
+      queue_len_avg: 2.55464
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.34133
-      priority_queue_len_avg: 0.00458468
+      write_queue_len_avg: 2.54953
+      priority_queue_len_avg: 0.00511229
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -222,15 +222,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 4
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -243,19 +243,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 195028
+      queue_len: 198325
       read_queue_len: 0
-      write_queue_len: 194573
-      priority_queue_len: 455
-      queue_len_avg: 2.39716
+      write_queue_len: 197936
+      priority_queue_len: 389
+      queue_len_avg: 2.49114
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.39157
-      priority_queue_len_avg: 0.00559257
+      write_queue_len_avg: 2.48626
+      priority_queue_len_avg: 0.0048862
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -275,15 +275,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 5
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -296,19 +296,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 199174
+      queue_len: 197343
       read_queue_len: 0
-      write_queue_len: 198711
-      priority_queue_len: 463
-      queue_len_avg: 2.44812
+      write_queue_len: 196946
+      priority_queue_len: 397
+      queue_len_avg: 2.47881
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.44243
-      priority_queue_len_avg: 0.0056909
+      write_queue_len_avg: 2.47382
+      priority_queue_len_avg: 0.00498669
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -328,15 +328,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 6
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -349,19 +349,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 205008
+      queue_len: 202226
       read_queue_len: 0
-      write_queue_len: 204543
-      priority_queue_len: 465
-      queue_len_avg: 2.51983
+      write_queue_len: 201821
+      priority_queue_len: 405
+      queue_len_avg: 2.54014
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.51411
-      priority_queue_len_avg: 0.00571548
+      write_queue_len_avg: 2.53506
+      priority_queue_len_avg: 0.00508717
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 
@@ -381,15 +381,15 @@ memory_system:
     -
       impl: HBM12
       id: Channel 7
-      cycles: 81358
-      row_hits: 4936
-      row_misses: 184
+      cycles: 79612
+      row_hits: 4944
+      row_misses: 176
       row_conflicts: 0
       read_row_hits: 0
       read_row_misses: 0
       read_row_conflicts: 0
-      write_row_hits: 4936
-      write_row_misses: 184
+      write_row_hits: 4944
+      write_row_misses: 176
       write_row_conflicts: 0
       read_row_hits_core_0: 0
       read_row_misses_core_0: 0
@@ -402,19 +402,19 @@ memory_system:
       num_maintenance_reqs_served: 26
       num_read_reqs_forwarded: 0
       num_write_reqs_coalesced: 0
-      queue_len: 200163
+      queue_len: 203760
       read_queue_len: 0
-      write_queue_len: 199692
-      priority_queue_len: 471
-      queue_len_avg: 2.46027
+      write_queue_len: 203353
+      priority_queue_len: 407
+      queue_len_avg: 2.55941
       read_queue_len_avg: 0
-      write_queue_len_avg: 2.45449
-      priority_queue_len_avg: 0.00578923
+      write_queue_len_avg: 2.5543
+      priority_queue_len_avg: 0.00511229
       read_latency: 0
       avg_read_latency: 0
       read_throughput_MBps: 0
-      write_throughput_MBps: 3046.62
-      total_throughput_MBps: 3046.62
+      write_throughput_MBps: 3113.44
+      total_throughput_MBps: 3113.44
       scheduler:
         impl: GPGPUSimFRFCFS
 

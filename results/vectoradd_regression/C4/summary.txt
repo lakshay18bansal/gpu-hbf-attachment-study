@@ -1,9 +1,0 @@
-C4 vectoradd prefetch=on rc=0
-  cycles 120,403  time 85.39 us  kernels 1  insn 14,680,064
-  L2 accesses 393,216 misses 315,208
-  HBM/DRAM read 0 B write 1,310,720 B = 15.35 GB/s of 387.07
-  HBF requests 184,136 page reads 2,048 MSHR hits 178,779 bytes read 5,892,352 = 69.00 GB/s; read latency avg 515 cycles
-  attach: admitted 184,136 returned 184,136; E2E latency avg 721 p50 240 p99 30832 cycles
-  H3 base die routed hbm 10,240 hbf 184,136 (router stall ticks 0); GPU DRAM credits max 256 / 257
-  H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,892,352 B
-  LHB request hits 180,049

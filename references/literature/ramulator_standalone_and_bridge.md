@@ -12,7 +12,7 @@ Nothing inside `<btp_work>/accelsim-work` or `<btp_work>/accel_sim_hbf` was
 modified. All runs used `PYTHONDONTWRITEBYTECODE=1`, so no `__pycache__` was written, and
 `git -C accelsim-work/ramulator status` lists the same 25 entries before and after. Everything I
 built or produced is in
-`/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-ramulator-bridge/`.
+`<scratch>/code-ramulator-bridge/`.
 That folder is called `$S` below. `$R` is `<btp_work>/accelsim-work/ramulator`, and
 `$G` is `<btp_work>/accelsim-work/accel-sim-framework/gpu-simulator/gpgpu-sim/src/gpgpu-sim`.
 
@@ -503,7 +503,7 @@ where a request goes. A faithful Ramulator model needs both:
 ## 4. Files produced
 
 All under
-`/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-ramulator-bridge/`:
+`<scratch>/code-ramulator-bridge/`:
 
 | File | What |
 |---|---|

@@ -2,8 +2,8 @@
 
 Scope: I cross-read the 7 reports in this directory and checked the most decision-critical claims against the code and the HBF-Sim paper. I also ran 4 short simulations, one at a time under `nice -n 10`, each between 17 s and 1 min 41 s. All runs were done in scratch only. Nothing under `accel_sim_hbf/` or `accelsim-work/` was modified.
 
-- Run directory: `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/critic/runs/`
-- Runner: `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/critic/run_subset.sh`. It is a copy of the qwen3-tools runner with only its output directory changed.
+- Run directory: `<scratch>/critic/runs/`
+- Runner: `<scratch>/critic/run_subset.sh`. It is a copy of the qwen3-tools runner with only its output directory changed.
 
 Tags: [ran] = I executed it; [read] = I read the code or paper; [inf] = my inference.
 

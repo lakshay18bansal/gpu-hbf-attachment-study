@@ -1,11 +1,11 @@
 {
  "study": "hbfsim_4arch",
  "config": "C2",
- "config_dir": "/home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/C2_hbf_dram",
+ "config_dir": "/home/lakshay/btp_work/hbf-gpu-4arch/models/C2_hbf_dram",
  "workload": "vectoradd",
- "kernelslist": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g",
- "tR_us": 15.0,
+ "kernelslist": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g",
  "prefetch": "off",
+ "tR_us": 15.0,
  "memory": "hbm2e_slice8",
  "hbf": true,
  "attach": 0,
@@ -19,6 +19,6 @@
  "lhb_pages": 0,
  "prefetch_window": 0,
  "hints": "",
- "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/A_C2_cred4096/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/A_C2_cred4096/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_dram_max_outstanding 4096",
- "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/A_C2_cred4096/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/results/validation/A_C2_cred4096/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_dram_max_outstanding 4096 -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf/kernelslist.g"
+ "extra": "-gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/A_C2_cred4096/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/A_C2_cred4096/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_dram_max_outstanding 4096",
+ "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -gpgpu_mem_access_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/A_C2_cred4096/access.txt -gpgpu_mem_access_trace_detail 1 -gpgpu_hbf_trace_file /home/lakshay/btp_work/hbf-gpu-4arch/runs/validation/A_C2_cred4096/hbf.csv -gpgpu_hbf_trace_level 1 -gpgpu_dram_max_outstanding 4096 -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf/kernelslist.g"
 }

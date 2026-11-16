@@ -20,16 +20,16 @@ simulator code. Reads the run folders made by validate/run_validation.sh:
   h3_*        C4: base-die routing counts, link bytes per direction and tier, LHB hits off the
               HBF channel link, GPU credits <= 257
   transparent no HBF address in the trace: C2 and C3 cycle-identical to C1; C4 within 1% (base-die buffer)
-  hop         C4 D2D hop: NAND completions shift by exactly the hop, LHB hits do not
+  hop         C4 D2D hop: NAND completions pay the hop, LHB hits (base die) do not
   cap         C4 link at 5 GB/s/partition: never exceeded, and binding
   queue       C4 base-die queues of 1 entry: no deadlock, same HBF requests
   frontend    L2 exit (C4: router) -> HBF controller = 190 cycles = 134.75 ns in C2/C3/C4 (the
               GPU front end HBM requests pay inside Ramulator)
-  credits4096 4096 GPU requests in flight per partition: C2 and C4 (no LHB) go past 257, faster
+  credits4096 4096 GPU requests in flight per partition: C2 goes past 257 and is faster
   deadlock    the 20M-cycle window still detects: GPGPU-Sim's 50k window aborts the write test
-  parity      C2/C3 with the LHB prefetcher and with L2 caching, C3 with 257 slots: run, conserve
-              every request, and move in the expected direction
-  tR          --tR-us 3 sets the NAND read time and resizes the LHB and prefetch window
+  slots       C3 with 257 slots: every request conserved, never more than 257 in flight, slower
+  tR          --tR-us 3 sets the NAND read time; the C4 LHB keeps its fixed size
+  subarrays   --subarrays 1024: 1024 sub-arrays active, HBF-Sim's mapping with 64 per channel, faster
   writes      A, B and C in the HBF window: stores reach HBF (C2/C3 directly, C4 as L2
               write-backs through the base die), every write is programmed and acknowledged once,
               no write errors, credits as above, no deadlock; in C4 only L2 write-backs still being
@@ -146,7 +146,7 @@ def inflight_max(acc, csv, tier='HBF'):
 def main_checks(cid, base_insn):
     run = VD / cid
     s = summarize(run)
-    section(f'{cid}: vectorAdd, prefetch {s["prefetch"]} — {s["cycles"]:,} cycles ({s["time_us"]:.2f} us)')
+    section(f'{cid}: vectorAdd' + (f', LHB {s["lhb_mib"]:g} MiB' if s['lhb_mib'] else '') + f' — {s["cycles"]:,} cycles ({s["time_us"]:.2f} us)')
     ok('run', s['rc'] == 'rc=0' and s['kernels'] == 1 and s['insn'] == base_insn,
        f'{s["rc"]}, {s["kernels"]} kernel completed, {s["insn"]:,} instructions (C1: {base_insn:,})')
     good, text = config_ok(run)
@@ -318,22 +318,13 @@ def main():
        f'({st0:,} router stall ticks); in C1 it waits inside the GPU without a credit. Limit: 1%')
 
     section('C4 ablations')
-    a0, a1 = VD / 'A_C4_pfoff', VD / 'A_C4_pfoff_hop1000'
-    c0, c1_ = read_csv(a0 / 'hbf.csv'), read_csv(a1 / 'hbf.csv')
-    (k0, n0), (k1, n1) = hop_ticks(a0), hop_ticks(a1)
-    want = (k1 - k0) / dram_mhz(a0) * CORE_MHZ
-    got = nand_min(c1_) - nand_min(c0)
-    b0, b1 = buf_min(c0), buf_min(c1_)
-    bufs = (f'; page-buffer hits (on the HBF die, so they pay the hop too): min {b0 if b0 is not None else "none"} -> '
-            f'{b1 if b1 is not None else "none"} cycles')
-    ok('hop (NAND)', abs(got - want) <= 2 and (b1 is None or b1 >= want),
-       f'prefetch off: min NAND array-read latency {nand_min(c0):,} -> {nand_min(c1_):,} core cycles (+{got}); hop '
-       f'{k0} -> {k1} DRAM ticks ({n0} -> {n1} ns) = +{want:.1f} cycles' + bufs)
     p0, p1 = VD / 'C4', VD / 'A_C4_hop1000'
     q0, q1 = read_csv(p0 / 'hbf.csv'), read_csv(p1 / 'hbf.csv')
+    (k0, n0), (k1, n1) = hop_ticks(p0), hop_ticks(p1)
+    want = (k1 - k0) / dram_mhz(p0) * CORE_MHZ
     ok('hop (LHB)', hit_min(q0) == hit_min(q1) and nand_min(q1) - nand_min(q0) >= want - 2,
-       f'prefetch on: min LHB-hit latency {hit_min(q0)} = {hit_min(q1)} cycles (LHB in the HBM base die: no hop); '
-       f'min NAND latency {nand_min(q0):,} -> {nand_min(q1):,}')
+       f'D2D hop {n0} -> {n1} ns (+{want:.0f} core cycles): min LHB-hit latency {hit_min(q0)} = {hit_min(q1)} cycles '
+       f'(LHB in the HBM base die: no hop); min NAND latency {nand_min(q0):,} -> {nand_min(q1):,} (pays the hop)')
     cap = summarize(VD / 'A_C4_link5')
     acc = read_access(VD / 'A_C4_link5' / 'access.txt')
     pb = collections.Counter()
@@ -347,13 +338,8 @@ def main():
     ok('queue', q['rc'] == 'rc=0' and q['hbf']['requests'] == res['C4']['h']['requests'],
        f'base-die queues of 1 entry: {q["rc"]}, {q["cycles"]:,} cycles, {q["hbf"]["requests"]:,} HBF requests '
        f'(= C4 {res["C4"]["h"]["requests"]:,}); router stall ticks {q["hbf"]["h3_router_stall_ticks"]:,}')
-    pf = summarize(a0)
-    ok('prefetch off', pf['rc'] == 'rc=0' and pf['hbf'].get('lhb_request_hits') is None and pf['hbf']['h3_dram_credits_max'] <= CREDITS,
-       f'C4 without the LHB: {pf["cycles"]:,} cycles (with LHB {res["C4"]["s"]["cycles"]:,}); no LHB hits; GPU credits '
-       f'max {pf["hbf"]["h3_dram_credits_max"]}/{CREDITS}')
-
     section('Deeper GPU memory controller (4096 requests in flight per partition)')
-    for aid, base_id in (('A_C2_cred4096', 'C2'), ('A_C4_pfoff_cred4096', 'A_C4_pfoff')):
+    for aid, base_id in (('A_C2_cred4096', 'C2'),):
         run = VD / aid
         a, b = summarize(run), summarize(VD / base_id)
         fl = inflight_max(read_access(run / 'access.txt'), read_csv(run / 'hbf.csv'))
@@ -365,7 +351,7 @@ def main():
            f'HBF-Sim\'s 4096 admission entries = 512 per partition bound it)'
            + (f'; GPU credit limit {lim}' if lim else ''))
 
-    section('Parity variants (C2/C3 with C4\'s mechanisms) and the tR option')
+    section('GPU memory slots, the tR option and the flash parallelism option')
     def conserved(run):
         # An unfinished or failed run gives good=False (and empty data), never an exception.
         s_ = summarize(run)
@@ -380,48 +366,33 @@ def main():
         good = nt == ni == nc == h_.get('requests') and \
             ('admitted' not in h_ or h_['admitted'] == h_['returned'] == ni)
         return s_, h_, csv_, acc_, good, ni
-    for pid, base_id in (('P_C2_pf', 'C2'), ('P_C3_pf', 'C3')):
-        s_, h_, csv_, acc_, good, ni = conserved(VD / pid)
-        b = res[base_id]['s']
-        fl = inflight_max(acc_, csv_) if good else {}
-        mx = max(fl.values()) if fl else 0
-        ok(f'prefetch {pid}', good and h_.get('lhb_request_hits', 0) > 0 and s_['cycles'] < b['cycles']
-           and (base_id == 'C3' or mx <= CREDITS),
-           f'LHB in the HBF base die: {s_["cycles"]:,} cycles vs {b["cycles"]:,} without; {h_.get("lhb_request_hits", 0):,} '
-           f'of {ni:,} HBF requests hit the LHB; every request returned once; max in flight per partition {mx}')
-    for pid, base_id in (('P_C2_l2', 'C2'), ('P_C3_l2', 'C3')):
-        s_, h_, csv_, acc_, good, ni = conserved(VD / pid)
-        ok(f'L2 caching {pid}', good and ni < res[base_id]['nh'],
-           f'HBF data cached in L2: {ni:,} HBF requests (bypassing: {res[base_id]["nh"]:,}; memcpy-warmed lines '
-           f'now hit), {s_["cycles"]:,} cycles vs {res[base_id]["s"]["cycles"]:,}; every request returned once')
     s_, h_, csv_, acc_, good, ni = conserved(VD / 'P_C3_cred257')
     fl = inflight_max(acc_, csv_) if good else {}
     mx = max(fl.values()) if fl else 0
     ok('slots P_C3_cred257', good and mx <= CREDITS and s_['cycles'] > res['C3']['s']['cycles'],
        f'C3 with 257 HBF slots per partition: max in flight {mx} <= 257 (C3: {res["C3"]["inflight"]}); '
        f'{s_["cycles"] or 0:,} cycles vs {res["C3"]["s"]["cycles"]:,} ({s_["rc"]})')
-    t3 = read_csv(VD / 'S_C4_tR3_pfoff' / 'hbf.csv')
-    k3, _ = hop_ticks(VD / 'S_C4_tR3_pfoff')
-    want3 = (3000.0 + k3 / dram_mhz(VD / 'S_C4_tR3_pfoff') * 1e3) * CORE_MHZ / 1e3
-    v = [r['lat'] for r in t3 if r['state'] == 'COMPLETED' and r['op'] == 'R' and not r['hit'] and r['lat'] > 0.9 * want3]
-    m3 = min(v) if v else None
     cfg3 = (VD / 'S_C4_tR3' / 'gpgpusim.config').read_text()
     s3 = summarize(VD / 'S_C4_tR3')
-    ok('tR option', m3 is not None and want3 - 2 <= m3 <= want3 + 30 and opt(cfg3, '-gpgpu_hbf_lhb_pages') == '567'
-       and opt(cfg3, '-gpgpu_hbf_prefetch_window') == '284' and s3['rc'] == 'rc=0',
-       f'--tR-us 3: min NAND read latency {m3} core cycles (3 us + hop = {want3:.0f}); LHB resized to '
-       f'{opt(cfg3, "-gpgpu_hbf_lhb_pages")} pages, window {opt(cfg3, "-gpgpu_hbf_prefetch_window")} '
-       f'(2 x / 1 x 387 GB/s x 3 us); C4 with LHB {s3["cycles"]:,} cycles vs {res["C4"]["s"]["cycles"]:,} at 15 us')
+    log3 = (VD / 'S_C4_tR3' / 'run.log').read_text(errors='replace')
+    tr3 = re.findall(r'^HBF NAND Timing:\s+tR=(\d+) ticks \(([\d.]+) us\)', log3, re.M)
+    lhb4 = opt((VD / 'C4' / 'gpgpusim.config').read_text(), '-gpgpu_hbf_lhb_pages')
+    ok('tR option', bool(tr3) and abs(float(tr3[-1][1]) - 3.0) < 0.01 and s3['rc'] == 'rc=0'
+       and opt(cfg3, '-gpgpu_hbf_lhb_pages') == lhb4 and s3['hbf'].get('lhb_fills_wasted', 1) == 0,
+       f'--tR-us 3: NAND tR = {tr3[-1][0] if tr3 else "?"} DRAM ticks ({tr3[-1][1] if tr3 else "?"} us); LHB size '
+       f'unchanged ({opt(cfg3, "-gpgpu_hbf_lhb_pages")} pages, the same as at 15 us); {s3["cycles"]:,} cycles vs '
+       f'{res["C4"]["s"]["cycles"]:,} at 15 us; no wasted LHB fills')
 
-    bm = summarize(VD / 'S_C3_bwmatch')
-    bl = (VD / 'S_C3_bwmatch' / 'run.log').read_text(errors='replace')
+    bm = summarize(VD / 'S_C3_sa1024')
+    bl = (VD / 'S_C3_sa1024' / 'run.log').read_text(errors='replace')
     act = re.findall(r'^HBF Sub-arrays:\s+(\d+)', bl, re.M)
-    reads = [r for r in read_csv(VD / 'S_C3_bwmatch' / 'hbf.csv') if r['state'] == 'READ']
-    sa_ok = all(r['sa'] == r['ch'] * 89 + (r['page'] // NCH) % 89 for r in reads)
-    ok('flash bandwidth = HBM option', bm['rc'] == 'rc=0' and act and int(act[-1]) == 1424 and sa_ok
-       and bm['cycles'] < res['C3']['s']['cycles'],
-       f'1418 active / 1424 sub-arrays (89 per channel): {bm["cycles"]:,} cycles vs {res["C3"]["s"]["cycles"]:,} with '
-       f'HBF-Sim\'s 512; sub-array mapping ch*89 + (page/16) mod 89 holds for all {len(reads):,} NAND reads')
+    reads = [r for r in read_csv(VD / 'S_C3_sa1024' / 'hbf.csv') if r['state'] == 'READ']
+    per = 1024 // NCH
+    sa_ok = all(r['sa'] == r['ch'] * per + (r['page'] // NCH) % per for r in reads)
+    ok('flash parallelism option', bm['rc'] == 'rc=0' and act and int(act[-1]) == 1024 and sa_ok
+       and bm['cycles'] <= res['C3']['s']['cycles'],
+       f'--subarrays 1024 ({per} per channel): {bm["cycles"]:,} cycles vs {res["C3"]["s"]["cycles"]:,} with '
+       f'HBF-Sim\'s 512 (never slower; C3 vectorAdd is limited by request slots, not by the flash array); sub-array mapping ch*{per} + (page/16) mod {per} holds for all {len(reads):,} NAND reads')
 
     section('Deadlock check')
     dl = summarize(VD / 'D_W_C4_win50k')
@@ -433,7 +404,7 @@ def main():
        f'accounted for (below): the check is active and its window is longer than any HBF stall')
 
     section('HBF write path (A, B and C in the HBF window; C2/C3: first 512 KiB of C)')
-    for wid in ('W_C2', 'W_C3', 'W_C4', 'W_C4_pfoff'):
+    for wid in ('W_C2', 'W_C3', 'W_C4'):
         run = VD / wid
         w = summarize(run)
         if w['rc'] != 'rc=0' or not w['cycles']:

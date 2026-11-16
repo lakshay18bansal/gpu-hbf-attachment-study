@@ -7,10 +7,10 @@ host-decided split) and C4 (HBF behind HBM, H3-style). Nothing inside `accel_sim
 
 | What | Path |
 |---|---|
-| Unpacked trace (copy) | `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-qwen3-trace/replay/` |
-| Simulation runs | `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-qwen3-trace/runs/<name>/` (`run.log`, `time.txt`, `gpgpusim.config`) |
-| Re-placed trace variant (layer 13, MLP-only in HBF) | `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/code-qwen3-trace/variants/l13_mlp_in_hbf/` |
-| My tools | `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/qwen3-tools/` (`headers.py`, `layers.py`, `addrscan.py`, `run_subset.sh`, `replace_weights.py`, outputs `headers.json`, `layers.out`, `layer13_addr.json`) |
+| Unpacked trace (copy) | `<scratch>/code-qwen3-trace/replay/` |
+| Simulation runs | `<scratch>/code-qwen3-trace/runs/<name>/` (`run.log`, `time.txt`, `gpgpusim.config`) |
+| Re-placed trace variant (layer 13, MLP-only in HBF) | `<scratch>/code-qwen3-trace/variants/l13_mlp_in_hbf/` |
+| My tools | `<scratch>/qwen3-tools/` (`headers.py`, `layers.py`, `addrscan.py`, `run_subset.sh`, `replace_weights.py`, outputs `headers.json`, `layers.out`, `layer13_addr.json`) |
 
 Legend: **[ran]** = I ran it and measured, **[read]** = read from code or files, **[inferred]** = my reasoning or extrapolation, not measured.
 

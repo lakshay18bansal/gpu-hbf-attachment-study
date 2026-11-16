@@ -5,7 +5,7 @@ Companion: `lit_hbf_llm_partA.md`, which covers FLINT, FlashAccel, "HBF Sucks?" 
 
 ## Provenance: what was read, and where the text is
 
-Local full-text copies were downloaded to `/tmp/claude-1000/-home-lakshay-btp-work/82ba44e8-6a43-4f90-9b90-71b2a205d670/scratchpad/papers/partB_*/` and converted with `pdf2txt.py`.
+Local full-text copies were downloaded to `<scratch>/papers/partB_*/` and converted with `pdf2txt.py`.
 
 | Item | Source | Read? |
 |---|---|---|

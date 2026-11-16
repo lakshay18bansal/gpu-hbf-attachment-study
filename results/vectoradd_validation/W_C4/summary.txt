@@ -1,9 +1,10 @@
-C4 /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/hbf_rw/kernelslist.g prefetch=on rc=0
+C4 /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/hbf_rw/kernelslist.g tR=15us LHB=16MiB rc=0
   cycles 2,085,275  time 1478.92 us  kernels 1  insn 14,680,064
-  L2 accesses 393,216 misses 315,200
+  L2 accesses 393,216 misses 315,200; GPU memory latency avg 11167 cycles
   HBM/DRAM read 0 B write 0 B = 0.00 GB/s of 387.07
   HBF requests 194,368 page reads 2,048 MSHR hits 160,794 bytes read 5,892,096 = 3.98 GB/s; read latency avg 515 cycles
   attach: admitted 194,368 returned 192,608; E2E latency avg 14351 p50 240 p99 274464 cycles
   H3 base die routed hbm 0 hbf 194,368 (router stall ticks 0); GPU DRAM credits max 257 / 257
   H3 link 48.384 GB/s/partition: down 1,310,720 B, up HBM 0 B, up HBF 5,892,096 B
-  LHB request hits 180,045
+  flash read amplification 1.4237; array busy 99.513%
+  LHB request hits 180,045 (92.63%); fills 2,048, wasted 0, live evictions 0; data ready 273.181 us before use

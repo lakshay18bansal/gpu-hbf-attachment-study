@@ -1,11 +1,11 @@
 {
  "study": "hbfsim_4arch",
  "config": "C1",
- "config_dir": "/home/lakshay/btp_work/hbm_hbf_study/hbfsim_4arch/C1_hbm_only",
+ "config_dir": "/home/lakshay/btp_work/hbf-gpu-4arch/models/C1_hbm_only",
  "workload": "vectoradd_nohbf",
- "kernelslist": "/home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/original/kernelslist.g",
- "tR_us": 15.0,
+ "kernelslist": "/home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/original/kernelslist.g",
  "prefetch": "off",
+ "tR_us": 15.0,
  "memory": "hbm2e_slice8",
  "hbf": false,
  "attach": 0,
@@ -20,5 +20,5 @@
  "prefetch_window": 0,
  "hints": "",
  "extra": "",
- "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -trace /home/lakshay/btp_work/hbm_hbf_study/workloads/vectoradd/original/kernelslist.g"
+ "args": "-config ./gpgpusim.config -gpgpu_ramulator_enabled 1 -gpgpu_ramulator_config ./memory.yaml -trace /home/lakshay/btp_work/hbf-gpu-4arch/workloads/vectoradd/original/kernelslist.g"
 }
